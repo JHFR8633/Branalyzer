@@ -1,0 +1,22 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+
+# Signal processing
+mne
+
+# Machine learning
+scikit-learn
+tensorflow
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Frontend
+streamlit
+
+# Configs
+pyyaml
