@@ -5,7 +5,7 @@ __pycache__/
 .venv/
 venv/
 
-# Runtime data (DO NOT COMMIT)
+# Runtime data
 /data/
 
 # Logs
@@ -20,3 +20,4 @@ Thumbs.db
 
 # Docker
 *.env
+
