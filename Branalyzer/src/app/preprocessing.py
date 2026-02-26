@@ -95,7 +95,7 @@ def highpass_filter(raw: mne.io.Raw, low_freq: float = ICA_HIGHPASS) -> mne.io.R
 def ica_artifact_removal(raw: mne.io.Raw) -> mne.io.Raw:
     logging.info(f"Removing muscle artifacts (ocular, muscular) via ICA... [NOT IMPLEMENTED]")
     copy = raw.copy() # creating copy of raw data 
-    picks = mne.pick_types(raw_for_ica.info, eeg=True, eog=True, exclude='bads')
+    picks = mne.pick_types(copy.info, eeg=True, eog=True, exclude='bads')
     ica = ICA(n_components= 7, max_iter="auto", random_state= 25) # n_components cannot be more than len(picks), 
     ica.fit(copy, picks = picks)
 
