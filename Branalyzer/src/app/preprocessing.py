@@ -94,6 +94,13 @@ def highpass_filter(raw: mne.io.Raw, low_freq: float = ICA_HIGHPASS) -> mne.io.R
 
 def ica_artifact_removal(raw: mne.io.Raw) -> mne.io.Raw:
     logging.info(f"Removing muscle artifacts (ocular, muscular) via ICA... [NOT IMPLEMENTED]")
+    copy = raw.copy() # creating copy of raw data 
+    picks = mne.pick_types(raw_for_ica.info, eeg=True, eog=True, exclude='bads')
+    ica = ICA(n_components= 7, max_iter="auto", random_state= 25) # n_components cannot be more than len(picks), 
+    ica.fit(copy, picks = picks)
+
+    ica.plot_components() # this can be commented out but it has a visual that is pretty cool to look at 
+    ica.apply(raw)
 
     # NOTE: In practice, for ICA: We will apply the 1Hz highpass filtering -> make a copy of the data -> fit ICA on the copy -> apply those ICA component exclusions to the original data -> then bandpass filter it.
     # This is because the ica.fit() function can modify the data directly, and we just want the weights generated from it to separate the components in the original data.
@@ -133,5 +140,6 @@ def preprocessing(subject: int) -> mne.io.Raw: # TODO: This will have to be chan
 
 if __name__ == "__main__":
     epochs = preprocessing(subject=1)
-    print((raw.get_data(picks = 0)).shape)
-    print(epochs.info) # TODO: Again, this is a Raw object until epoching is implemented.
+    #raw = load_raw_db(subject=1)
+    #print("Raw data" , (raw.get_data(picks = 0)).shape)
+    print("Epochs info", epochs.info) # TODO: Again, this is a Raw object until epoching is implemented.
