@@ -47,7 +47,12 @@ def load_raw_db(subject: int) -> mne.io.Raw:
     """ Loads the raw EEG data for a given subject from the PhysioNet EEGMMIDB dataset."""
     logging.info(f"Loading raw imagery run data from PhysioNet EEGMMIDB subject {subject}...")
     
-    raw_files = eegbci.load_data(subject, IMAGERY_RUNS, path=DATA_PATH)
+    raw_files = eegbci.load_data(
+    subject,
+    IMAGERY_RUNS,
+    path=DATA_PATH,
+    update_path=True,  
+)
     # eegbci.load_data() returns a list of file paths, one each to each run (4, 8, 12), so we then have to append them all together into a single continuous 'Raw' object.
 
     raws_list = []
@@ -113,9 +118,23 @@ def bandpass_filter(raw: mne.io.Raw, low_freq: float = BANDPASS_LOW, high_freq: 
     return raw
 
 
-def epoching(raw: mne.io.Raw) -> mne.io.Raw: # TODO: This will have to be changed to -> mne.Epochs once implemented.
-    logging.info(f"Epoching concatenated, cleaned data into epochs for motor imagery classification model training... [NOT IMPLEMENTED]")
-    return raw
+def epoching(raw: mne.io.Raw) -> mne.Epochs:
+    logging.info("Epoching data into trials...")
+
+    events, _ = mne.events_from_annotations(raw)
+
+    epochs = mne.Epochs(
+        raw,
+        events,
+        EVENT_IDS,
+        tmin=0.0,
+        tmax=4.0,
+        baseline=None,
+        preload=True,
+    )
+
+    logging.info(f"Created {len(epochs)} epochs.")
+    return epochs
 
 
 def preprocessing(subject: int) -> mne.io.Raw: # TODO: This will have to be changed to -> mne.Epochs once implemented.

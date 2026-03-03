@@ -120,13 +120,13 @@ with st.sidebar:
 # Benchmarking pipeline (backend)
 # -----------------------------
 with st.status("Running pipeline…", expanded=False) as status:
-    pipeline_out = run_pipeline(None)  # backend metrics (currently stub)
+    pipeline_out = run_pipeline(int(subject))  # backend metrics (currently stub) (added now)
     status.update(label="Pipeline complete", state="complete")
 
 results = pipeline_out.results
-r0, r1, r2 = results[:3]
-
-
+r0 = results[0] 
+#r0, r1, r2 = results[:3]
+#change back to :3 later when we have more models
 # -----------------------------
 # Signal Inspection (frontend)
 # -----------------------------
@@ -181,11 +181,11 @@ st.header("Model Benchmarking")
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Accuracy", f"{r0.accuracy:.2f}", help=r0.name)
+    st.metric("Accuracy", f"{r0.accuracy:.2f}")
 with col2:
-    st.metric("F1 Score", f"{r1.f1_score:.2f}", help=r1.name)
+    st.metric("F1 Score", f"{r0.f1_score:.2f}") #will need changed
 with col3:
-    st.metric("Std Dev", f"{r2.std_dev:.2f}", help=r2.name)
+    st.metric("Std Dev", f"{r0.std_dev:.2f}")
 
 rows = []
 for r in results:
