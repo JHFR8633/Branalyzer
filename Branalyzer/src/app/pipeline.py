@@ -1,22 +1,43 @@
+# pipeline.py
 from __future__ import annotations
-import time
-import numpy as np
-from schemas import ModelResult, PipelineResult
 
-def run_pipeline(_: str | None = None) -> PipelineResult:
-    # replace with ingestion preprocess features train
-    start = time.time()
+from typing import List
 
-    results = [
-        ModelResult("LDA", 0.71, 0.69, 0.04, inference_time_s=0.01),
-        ModelResult("SVM", 0.74, 0.72, 0.03, inference_time_s=0.05),
-        ModelResult("Random Forest", 0.70, 0.68, 0.05, inference_time_s=0.02),
-    ]
+import mne
+
+from schemas import PipelineResult, ModelResult
+from data_ingestion import load_eegbci_subject
+from preprocessing import preprocessing_from_raw
+from models.csp_lda import run_csp_lda
+
+
+def run_pipeline(subject: int = 1) -> PipelineResult:
+    """
+    Full EEG pipeline:
+
+    1) Load EEGBCI data
+    2) Preprocess into epochs
+    3) Run CSP+LDA model
+    4) Return structured PipelineResult
+    """
+
+    raw: mne.io.Raw = load_eegbci_subject(
+        subject=subject,
+        runs=[4, 8, 12],
+        data_path="./data",
+        preload=True,
+    )
+
+
+    epochs: mne.Epochs = preprocessing_from_raw(raw)
+    results: List[ModelResult] = []
+
+    csp_result = run_csp_lda(epochs)
+    results.append(csp_result)
 
     return PipelineResult(
         results=results,
-        n_subjects=None,
-        n_epochs=None,
-        notes=f"Stub pipeline. Wall time: {time.time() - start:.3f}s",
+        n_subjects=1,
+        n_epochs=len(epochs),
+        notes="EEGBCI -> preprocessing -> CSP+LDA baseline",
     )
-
