@@ -1,26 +1,37 @@
 from __future__ import annotations
+
 import time
-import numpy as np
-from schemas import ModelResult, PipelineResult
-import preprocessing as prep
+
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import cross_val_score, cross_val_predict
+from sklearn.metrics import confusion_matrix, f1_score
+from sklearn.model_selection import cross_val_predict, cross_val_score
+
+from schemas import ModelResult, PipelineResult
+from preprocessing import load_raw_db, preprocessing
+from csp import run_csp_lda
+
 
 def extract_simple_features(epochs):
-    data = epochs.get_data()              
-    X = data.mean(axis=2)                 
-    y = epochs.events[:, -1]              
+    """Very simple baseline features: mean over time for each channel."""
+    data = epochs.get_data()          # (n_epochs, n_channels, n_times)
+    X = data.mean(axis=2)             # -> (n_epochs, n_channels)
+    y = epochs.events[:, -1]          # labels
     return X, y
+
 
 def run_pipeline(subject: int = 1) -> PipelineResult:
     start = time.time()
 
-    # Preprocess + epoch
-    epochs = prep.preprocessing(subject)
+    # 1) Load raw EEGBCI data
+    raw = load_raw_db(subject)
 
+    # 2) Preprocess into epochs
+    epochs = preprocessing(raw)
+
+    # 3) Simple baseline features for plain LDA
     X, y = extract_simple_features(epochs)
 
-    # Train LDA with cross-validation
+    # 4) Train/evaluate baseline LDA
     clf = LinearDiscriminantAnalysis()
 
     scores = cross_val_score(clf, X, y, cv=5)
@@ -28,21 +39,25 @@ def run_pipeline(subject: int = 1) -> PipelineResult:
 
     accuracy = float(scores.mean())
     std_dev = float(scores.std())
+    f1 = float(f1_score(y, y_pred, average="macro"))
+    cm = confusion_matrix(y, y_pred)
 
     lda_result = ModelResult(
         name="LDA",
         accuracy=accuracy,
-        f1_score=accuracy,   # simple for now
+        f1_score=f1,
         std_dev=std_dev,
         inference_time_s=time.time() - start,
         predictions=y_pred,
-        confusion_matrix=None,
+        confusion_matrix=cm,
     )
+
+    # 5) Run CSP + LDA model
+    csp_result = run_csp_lda(epochs)
 
     return PipelineResult(
-        results=[lda_result],
+        results=[lda_result, csp_result],
         n_subjects=1,
         n_epochs=len(epochs),
-        notes=f"LDA run on subject {subject}",
+        notes=f"EEGBCI -> preprocessing -> LDA + CSP/LDA (subject {subject})",
     )
-

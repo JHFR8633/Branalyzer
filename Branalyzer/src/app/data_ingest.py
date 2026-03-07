@@ -1,17 +1,54 @@
+# data_ingestion.py
+import mne
 from mne.datasets import eegbci
-import os
 
-DATA_PATH = "./data"
-os.makedirs(DATA_PATH, exist_ok=True)
 
-subjects = [1]
+def load_eegbci_subject(
+    subject: int,
+    runs: list[int],
+    data_path: str = "./data",
+    preload: bool = True,
+) -> mne.io.Raw:
+    """
+    Load and concatenate EEGBCI runs for a subject.
 
-imagery_runs_right_left = [4, 8, 12]
-motor_runs_right_left = [3, 7, 11]
-baseline_runs = [1, 2]
-# Info on motor imagery loading can be found at: https://mne.tools/stable/generated/mne.datasets.eegbci.load_data.html
+    Responsibilities:
+    - Download/load PhysioNet EEGBCI EDF files
+    - Read EDF into Raw objects
+    - Standardize channel names/types
+    - Concatenate runs into a single Raw
+    - Set standard montage
+    """
+    raw_files = eegbci.load_data(subject, runs, path=data_path, update_path=True)
 
-for subject in subjects:
-    eegbci.load_data(subject, imagery_runs_right_left, path=DATA_PATH)
+    raws = []
+    for f in raw_files:
+        r = mne.io.read_raw_edf(f, preload=preload)
+        eegbci.standardize(r)
+        raws.append(r)
 
-print("Data ingestion complete.")
+    raw = mne.concatenate_raws(raws)
+
+    montage = mne.channels.make_standard_montage("standard_1005")
+    raw.set_montage(montage)
+
+    return raw
+
+
+def load_user_edf(
+    edf_path: str,
+    preload: bool = True,
+    montage_name: str = "standard_1005",
+) -> mne.io.Raw:
+    """
+    FUTURE: Load user-provided EDF.
+
+    Responsibilities:
+    - Read EDF
+    - (Optional) standardize/rename channels if needed
+    - Set montage if possible
+    """
+    raw = mne.io.read_raw_edf(edf_path, preload=preload)
+    montage = mne.channels.make_standard_montage(montage_name)
+    raw.set_montage(montage)
+    return raw

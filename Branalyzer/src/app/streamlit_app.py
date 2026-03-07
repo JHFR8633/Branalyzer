@@ -6,8 +6,6 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from pipeline import run_pipeline
-
-# Option A: Streamlit calls preprocessing directly for waveforms
 import preprocessing as prep
 
 
@@ -41,7 +39,7 @@ def plot_waveforms_plotly(raw, picks: list[str], t_start: float, duration: float
     if not pick_idx:
         return None
 
-    data, times = raw[pick_idx, start:stop]  # (n_ch, n_times)
+    data, times = raw[pick_idx, start:stop]
     data = _downsample(data, ds_factor)
     times = times[::ds_factor]
 
@@ -70,31 +68,30 @@ def plot_waveforms_plotly(raw, picks: list[str], t_start: float, duration: float
 
 
 # -----------------------------
-# Cache signal builds (avoids re-downloading/recomputing on every rerun)
+# Cache signal builds
 # -----------------------------
 @st.cache_resource
 def build_signal_variants(subject: int):
     """
     Returns:
-      raw_view     -> raw with avg ref + channel selection (good for viewing)
-      filtered_view-> highpass + bandpass (Mu/Beta)
-      ica_view     -> ICA-cleaned (currently same as filtered because ICA isn't implemented)
+      raw_view      -> avg ref + selected channels
+      filtered_view -> 1 Hz highpass + 8-30 Hz bandpass
+      ica_view      -> ICA-cleaned + bandpass
     """
     raw = prep.load_raw_db(subject)
     raw = prep.set_average_reference(raw)
     raw = prep.select_channels(raw, prep.MOTOR_CHANNELS)
 
-    # Raw tab should show "raw after selection/reference" (still basically raw)
     raw_view = raw.copy()
 
-    # Filtered tab
     filtered = raw.copy()
-    filtered = prep.highpass_filter(filtered)      # 1 Hz highpass for ICA step
-    filtered = prep.bandpass_filter(filtered)      # 8–30 Hz Mu/Beta
+    filtered = prep.highpass_for_ica(filtered)
+    filtered = prep.bandpass_mu_beta(filtered)
 
-    # ICA-cleaned tab (right now ICA is not implemented → will be same as filtered)
-    ica_clean = filtered.copy()
-    ica_clean = prep.ica_artifact_removal(ica_clean)
+    ica_clean = raw.copy()
+    ica_clean = prep.highpass_for_ica(ica_clean)
+    ica_clean = prep.run_ica(ica_clean, n_components=len(prep.MOTOR_CHANNELS))
+    ica_clean = prep.bandpass_mu_beta(ica_clean)
 
     return raw_view, filtered, ica_clean
 
@@ -117,18 +114,18 @@ with st.sidebar:
 
 
 # -----------------------------
-# Benchmarking pipeline (backend)
+# Benchmarking pipeline
 # -----------------------------
 with st.status("Running pipeline…", expanded=False) as status:
-    pipeline_out = run_pipeline(int(subject))  # backend metrics (currently stub) (added now)
+    pipeline_out = run_pipeline(int(subject))
     status.update(label="Pipeline complete", state="complete")
 
 results = pipeline_out.results
-r0 = results[0] 
-#r0, r1, r2 = results[:3]
-#change back to :3 later when we have more models
+r0 = results[0]
+
+
 # -----------------------------
-# Signal Inspection (frontend)
+# Signal Inspection
 # -----------------------------
 st.divider()
 st.header("Signal Inspection")
@@ -139,30 +136,49 @@ try:
         raw_view, filt_view, ica_view = build_signal_variants(int(subject))
         status.update(label="Signals ready", state="complete")
 
-    # channel multiselect defaults
     all_channels = list(raw_view.ch_names)
-    default_channels = all_channels[: min(7, len(all_channels))]  # match MOTOR_CHANNELS size-ish
+    default_channels = all_channels[: min(7, len(all_channels))]
     picks = st.multiselect("Channels", options=all_channels, default=default_channels)
 
     tab_raw, tab_filt, tab_ica = st.tabs(["Raw", "Filtered", "ICA-Cleaned"])
 
     with tab_raw:
-        fig = plot_waveforms_plotly(raw_view, picks, t_start, float(duration), int(ds_factor), "Raw (avg ref + selected channels)")
+        fig = plot_waveforms_plotly(
+            raw_view,
+            picks,
+            t_start,
+            float(duration),
+            int(ds_factor),
+            "Raw (avg ref + selected channels)",
+        )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
         else:
             st.plotly_chart(fig, use_container_width=True)
 
     with tab_filt:
-        fig = plot_waveforms_plotly(filt_view, picks, t_start, float(duration), int(ds_factor), "Filtered (1Hz highpass + 8–30Hz bandpass)")
+        fig = plot_waveforms_plotly(
+            filt_view,
+            picks,
+            t_start,
+            float(duration),
+            int(ds_factor),
+            "Filtered (1 Hz highpass + 8-30 Hz bandpass)",
+        )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
         else:
             st.plotly_chart(fig, use_container_width=True)
 
     with tab_ica:
-        st.caption("Note: ICA artifact removal is currently marked NOT IMPLEMENTED in preprocessing.py, so this may match the filtered signal for now.")
-        fig = plot_waveforms_plotly(ica_view, picks, t_start, float(duration), int(ds_factor), "ICA-Cleaned (currently same as filtered until ICA implemented)")
+        fig = plot_waveforms_plotly(
+            ica_view,
+            picks,
+            t_start,
+            float(duration),
+            int(ds_factor),
+            "ICA-Cleaned",
+        )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
         else:
@@ -174,7 +190,7 @@ except Exception as e:
 
 
 # -----------------------------
-# Model Benchmarking (backend output)
+# Model Benchmarking
 # -----------------------------
 st.divider()
 st.header("Model Benchmarking")
@@ -183,7 +199,7 @@ col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Accuracy", f"{r0.accuracy:.2f}")
 with col2:
-    st.metric("F1 Score", f"{r0.f1_score:.2f}") #will need changed
+    st.metric("F1 Score", f"{r0.f1_score:.2f}")
 with col3:
     st.metric("Std Dev", f"{r0.std_dev:.2f}")
 
@@ -207,7 +223,7 @@ st.info("Will display once ModelResult.confusion_matrix is produced in the pipel
 
 
 # -----------------------------
-# Event Log (future hook)
+# Event Log
 # -----------------------------
 st.divider()
 st.header("Event Log")
