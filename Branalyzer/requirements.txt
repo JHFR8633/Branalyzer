@@ -5,6 +5,7 @@ scipy
 
 # Signal processing
 mne
+mne_icalabel
 
 # Machine learning
 scikit-learn

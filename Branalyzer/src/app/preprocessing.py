@@ -2,6 +2,7 @@ import logging
 import mne
 from mne.datasets import eegbci
 from mne.preprocessing import ICA
+from mne_icalabel import label_components
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -57,23 +58,63 @@ def set_average_reference(raw: mne.io.Raw) -> mne.io.Raw:
 
 
 def select_channels(raw: mne.io.Raw, channels: list[str] = MOTOR_CHANNELS) -> mne.io.Raw:
-    raw.pick_channels(channels)
+    raw.pick(channels)
     return raw
 
 
-def highpass_for_ica(raw: mne.io.Raw, l_freq: float = 1.0) -> mne.io.Raw:
-    raw.filter(l_freq=l_freq, h_freq=None)
+def highlowpass_for_ica(raw: mne.io.Raw, l_freq: float = 1.0, requested_h_freq: float = 100.0) -> mne.io.Raw:
+    """
+    According to the ICA_Label documentation used in run_ica_auto, the ML model used to automatically classify channels for ICA was trained on data with 1Hz-100Hz.
+    Therefore, before using ICA_Label, we need to use a maximum of 100Hz as a high-pass filter.
+    However, we have to consider the Nyquist frequency of the data (i.e. half of the sampling frequency).
+    If the requested high frequency (100Hz as default) exceeds the Nyquist frequency, we will have to cap the high frequency to that Nyquist frequency instead.
+    For example: If the input data is 160Hz (such as our PhysioNet data), Nyquist is 80Hz, so we will lose information between 80-100Hz. 
+                 So, we cap it to the 80Hz Nyquist frequency instead (but just on the copy of the data for ICA).
+    
+    https://github.com/mne-tools/mne-icalabel/blob/main/mne_icalabel/iclabel/label_components.py
+    """
+    nyquist = raw.info['sfreq'] / 2
+    ica_h_freq = min(requested_h_freq, nyquist - 2.0) # 2 Hz buffer against the Nyquist filter is necessary as MNE needs a 'transition band' for filtering.
+
+    if(ica_h_freq < requested_h_freq):
+        logging.info(f"Requested h_freq of {requested_h_freq} exceeds Nyquist frequency of {nyquist}. Setting h_freq to {ica_h_freq} for ICA preprocessing.")
+    else:
+        logging.info(f"Using requested h_freq of {requested_h_freq} for ICA preprocessing.")
+
+    raw.filter(l_freq=l_freq, h_freq=ica_h_freq)
     return raw
 
 
-def run_ica(raw: mne.io.Raw, n_components: int = 7, random_state: int = 25) -> mne.io.Raw:
-    """Fit ICA on a copy, then apply it to the original raw."""
-    copy = raw.copy()
-    picks = mne.pick_types(copy.info, eeg=True, eog=True, exclude="bads")
+def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state: int = 25) -> mne.io.Raw:
+    
 
-    ica = ICA(n_components=n_components, max_iter="auto", random_state=random_state)
-    ica.fit(copy, picks=picks)
+    if n_components is None:
+        good_channels = mne.pick_types(raw.info, eeg=True, exclude="bads")
+        n_components = len(good_channels) - 1
+        logging.info(f"Automatically setting n_components to {n_components} based on discovered good channels.")
+    else:
+        logging.info(f"Manually set n_components as {n_components}.")
+
+    # n_components = min(n_channels - 1, 16) # I am leaving this here for a reminder to cap the n_components IF we run into performance issues.
+
+    hipass_filtered = highlowpass_for_ica(raw.copy(), l_freq=1.0, requested_h_freq=100.0)\
+    
+    # Some warnings pop up from ICA if method is not "infomax" as MNE defaults to "FastICA." Manually setting it here seems to avoid this issue.
+    ica = ICA(n_components=n_components, method="infomax", fit_params=dict(extended=True), max_iter="auto", random_state=random_state,)
+    ica.fit(hipass_filtered)
+    
+    labels = label_components(hipass_filtered, ica, method="iclabel")
+
+    labeled_components = labels["labels"]
+
+    exclusions = [i for i, label in enumerate(labeled_components) if label in ["muscle artifact", "eye blink", "heart beat", "line noise", "channel noise"]]
+    # Labels found via: https://mne.tools/mne-icalabel/0.6/generated/api/mne_icalabel.iclabel.iclabel_label_components.html
+
+    logging.info(f"ICA_Label identified and will exclude: {exclusions}")
+
+    ica.exclude = exclusions
     ica.apply(raw)
+
     return raw
 
 
@@ -99,12 +140,16 @@ def make_epochs(raw: mne.io.Raw, tmin: float = 0.0, tmax: float = 4.0) -> mne.Ep
 def preprocessing(raw: mne.io.Raw) -> mne.Epochs:
     """
     Raw -> cleaned + epoched data.
+    Reminder that we have not implemented resampling yet, as we will determine the need after checking if it's necessary for performance reasons. Note: resampling will have to be done after ICA.
     No downloading or filesystem assumptions here.
     """
+
     raw = set_average_reference(raw)
+    raw = run_ica_auto(raw) # There is a second None = None argument for n_components. We can manually set n_components if we want as 2nd argument integer.
     raw = select_channels(raw)
-    raw = highpass_for_ica(raw, l_freq=1.0)
-    raw = run_ica(raw, n_components=len(MOTOR_CHANNELS))
     raw = bandpass_mu_beta(raw, l_freq=8.0, h_freq=30.0)
+
     epochs = make_epochs(raw, tmin=0.0, tmax=4.0)
     return epochs
+
+    # Note: a quick test script is (in terminal): python -c "from pipeline import run_pipeline; result = run_pipeline(1); print(result)"
