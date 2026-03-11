@@ -74,23 +74,30 @@ def plot_waveforms_plotly(raw, picks: list[str], t_start: float, duration: float
 def build_signal_variants(subject: int):
     """
     Returns:
-      raw_view      -> avg ref + selected channels
-      filtered_view -> 1 Hz highpass + 8-30 Hz bandpass
-      ica_view      -> ICA-cleaned + bandpass
+      raw_view      -> avg ref + selected channels (for display only)
+      filtered_view -> avg ref + channel selection + 1-78 Hz bandpass
+      ica_view      -> avg ref + auto ICA artifact removal + channel selection + 8-30 Hz bandpass
+
+    NOTE: Channel selection happens AFTER ICA to match the preprocessing pipeline.
+    The raw_view selects channels upfront only for display purposes.
     """
     raw = prep.load_raw_db(subject)
     raw = prep.set_average_reference(raw)
-    raw = prep.select_channels(raw, prep.MOTOR_CHANNELS)
 
+    # Raw 
     raw_view = raw.copy()
+    raw_view = prep.select_channels(raw_view, prep.MOTOR_CHANNELS)
 
+    # Filtered 
     filtered = raw.copy()
-    filtered = prep.highpass_for_ica(filtered)
+    filtered = prep.highlowpass_for_ica(filtered, l_freq=1.0, requested_h_freq=100.0)
+    filtered = prep.select_channels(filtered, prep.MOTOR_CHANNELS)
     filtered = prep.bandpass_mu_beta(filtered)
 
+    # ICA-cleaned 
     ica_clean = raw.copy()
-    ica_clean = prep.highpass_for_ica(ica_clean)
-    ica_clean = prep.run_ica(ica_clean, n_components=len(prep.MOTOR_CHANNELS))
+    ica_clean = prep.run_ica_auto(ica_clean)
+    ica_clean = prep.select_channels(ica_clean, prep.MOTOR_CHANNELS)
     ica_clean = prep.bandpass_mu_beta(ica_clean)
 
     return raw_view, filtered, ica_clean
@@ -219,7 +226,32 @@ df = pd.DataFrame(rows).sort_values("Accuracy", ascending=False)
 st.dataframe(df, use_container_width=True, hide_index=True)
 
 st.subheader("Confusion Matrix")
-st.info("Will display once ModelResult.confusion_matrix is produced in the pipeline.")
+for r in results:
+    cm = r.confusion_matrix
+    if cm is not None:
+        n_classes = cm.shape[0]
+        class_labels = ["Rest", "Left", "Right"][:n_classes] if n_classes <= 3 else [str(i) for i in range(n_classes)]
+        fig_cm = go.Figure(
+            go.Heatmap(
+                z=cm,
+                x=class_labels,
+                y=class_labels,
+                colorscale="Blues",
+                text=cm,
+                texttemplate="%{text}",
+                showscale=True,
+            )
+        )
+        fig_cm.update_layout(
+            title=f"{r.name} — Confusion Matrix",
+            xaxis_title="Predicted",
+            yaxis_title="Actual",
+            height=350,
+            margin=dict(l=20, r=20, t=45, b=20),
+        )
+        st.plotly_chart(fig_cm, use_container_width=True)
+    else:
+        st.info(f"{r.name}: No confusion matrix available.")
 
 
 # -----------------------------
@@ -227,8 +259,46 @@ st.info("Will display once ModelResult.confusion_matrix is produced in the pipel
 # -----------------------------
 st.divider()
 st.header("Event Log")
-st.write("Ground truth vs. prediction timeline.")
-st.info("Will display once ModelResult.predictions + ground truth are wired into the pipeline.")
+st.write("Ground truth vs. prediction timeline. Rows highlighted in red indicate epochs where the model disagrees with the ground truth label.")
+
+_LABEL_NAMES_RAW = {1: "Rest", 2: "Left Fist", 3: "Right Fist"}
+_LABEL_NAMES_BINARY = {0: "Left Fist", 1: "Right Fist"}
+
+def _highlight_disagreements(row):
+    """Red background for rows where prediction != ground truth."""
+    color = "background-color: #ffcccc" if row["Match"] == "❌" else ""
+    return [color] * len(row)
+
+for r in results:
+    if r.predictions is None:
+        st.info(f"{r.name}: No predictions available yet.")
+        continue
+
+    st.subheader(f"{r.name} — Event Log")
+    preds = r.predictions
+    truth = r.ground_truth
+
+    pred_label_map = _LABEL_NAMES_BINARY if set(np.unique(preds).tolist()) <= {0, 1} else _LABEL_NAMES_RAW
+    truth_label_map = _LABEL_NAMES_BINARY if (truth is not None and set(np.unique(truth).tolist()) <= {0, 1}) else _LABEL_NAMES_RAW
+
+    rows_log = []
+    for i, pred in enumerate(preds):
+        gt = truth[i] if truth is not None else None
+        match = "✅" if (gt is not None and int(pred) == int(gt)) else ("❌" if gt is not None else "—")
+        rows_log.append({
+            "Epoch #": i + 1,
+            "Ground Truth": truth_label_map.get(int(gt), str(gt)) if gt is not None else "—",
+            "Predicted": pred_label_map.get(int(pred), str(pred)),
+            "Match": match,
+        })
+
+    df_log = pd.DataFrame(rows_log)
+    n_errors = (df_log["Match"] == "❌").sum()
+    n_total = len(df_log)
+    st.caption(f"{n_errors} disagreements out of {n_total} epochs ({100 * n_errors / max(n_total, 1):.1f}% error rate)")
+
+    styled = df_log.style.apply(_highlight_disagreements, axis=1)
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=300)
 
 with st.expander("Pipeline Notes"):
     st.write(pipeline_out.notes)

@@ -162,5 +162,6 @@ def run_csp_lda(
         inference_time_s=infer_time_per_sample,
         confusion_matrix=cm,
         predictions=y_pred,
+        ground_truth=y,
         meta=meta,
     )

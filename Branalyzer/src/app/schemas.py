@@ -12,6 +12,7 @@ class ModelResult:
     inference_time_s: float
     confusion_matrix: Optional[np.ndarray] = None
     predictions: Optional[np.ndarray] = None
+    ground_truth: Optional[np.ndarray] = None
     meta: Optional[Dict[str, Any]] = None
 
 @dataclass
@@ -20,4 +21,3 @@ class PipelineResult:
     n_subjects: Optional[int] = None
     n_epochs: Optional[int] = None
     notes: Optional[str] = None
-

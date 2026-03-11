@@ -2,22 +2,18 @@
 numpy
 pandas
 scipy
-
 # Signal processing
 mne
 mne_icalabel
-
+onnxruntime
 # Machine learning
 scikit-learn
-tensorflow
-
+# tensorflow  # Uncomment when implementing CNN/LSTM 
 # Visualization
 matplotlib
 seaborn
 plotly
-
 # Frontend
 streamlit
-
 # Configs
 pyyaml

@@ -42,13 +42,21 @@ def run_pipeline(subject: int = 1) -> PipelineResult:
     f1 = float(f1_score(y, y_pred, average="macro"))
     cm = confusion_matrix(y, y_pred)
 
+    # Per-sample inference time: fit once on all data, time a single predict call
+    clf.fit(X, y)
+    t0 = time.perf_counter()
+    _ = clf.predict(X)
+    t1 = time.perf_counter()
+    lda_infer_time = float((t1 - t0) / max(len(X), 1))
+
     lda_result = ModelResult(
         name="LDA",
         accuracy=accuracy,
         f1_score=f1,
         std_dev=std_dev,
-        inference_time_s=time.time() - start,
+        inference_time_s=lda_infer_time,
         predictions=y_pred,
+        ground_truth=y,
         confusion_matrix=cm,
     )
 
