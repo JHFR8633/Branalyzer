@@ -8,7 +8,8 @@ from sklearn.model_selection import cross_val_predict, cross_val_score
 
 from schemas import ModelResult, PipelineResult
 from preprocessing import load_raw_db, preprocessing
-from csp import run_csp_lda
+#from csp import run_csp_lda
+from lda import run_csp_lda
 
 
 def extract_simple_features(epochs):
