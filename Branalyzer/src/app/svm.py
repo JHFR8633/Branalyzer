@@ -1,15 +1,53 @@
 from __future__ import annotations
- 
-import time
- 
-import numpy as np
+
 import mne
- 
+
 from mne.decoding import CSP
 from sklearn.svm import SVC
-from sklearn.metrics import f1_score, confusion_matrix
-from sklearn.model_selection import StratifiedKFold, cross_val_score, cross_val_predict
 from sklearn.pipeline import Pipeline
- 
+
 from schemas import ModelResult
-from csp_extraction import extract_X_y
+from csp_pipeline import extract_X_y, pipeline_helper
+
+def run_csp_svm(
+    epochs: mne.Epochs,
+    *,
+    name: str = "SVM",
+    crop_tmin: float = 1.0,
+    crop_tmax: float = 2.0,
+    drop_rest: bool = True,
+    # These codes should match epoching() event_id
+    rest_code: int = 1,
+    left_code: int = 2,
+    right_code: int = 3,
+    n_components: int = 4,
+    n_splits: int = 10,
+    random_state: int = 42,
+) -> ModelResult:
+    """
+    Train + evaluate CSP + SVM on epochs.
+    """
+    X, y, meta = extract_X_y(
+        epochs,
+        crop_tmin=crop_tmin,
+        crop_tmax=crop_tmax,
+        drop_rest=drop_rest,
+        rest_code=rest_code,
+        left_code=left_code,
+        right_code=right_code,
+    )
+    
+    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
+    svm = SVC(kernel="linear", random_state=random_state)
+    clf = Pipeline([("csp", csp), ("svm", svm)])
+
+    meta["n_components"] = n_components
+    meta["kernel"] = "linear"
+
+    return pipeline_helper(
+        clf, X, y,
+        name = name,
+        meta = meta,
+        n_splits = n_splits,
+        random_state = random_state,
+    )

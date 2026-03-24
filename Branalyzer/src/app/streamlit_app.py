@@ -5,7 +5,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from pipeline import run_pipeline
+from ml_pipeline import run_pipeline
 import preprocessing as prep
 
 
@@ -128,7 +128,6 @@ with st.status("Running pipeline…", expanded=False) as status:
     status.update(label="Pipeline complete", state="complete")
 
 results = pipeline_out.results
-r0 = results[0]
 
 
 # -----------------------------
@@ -202,19 +201,23 @@ except Exception as e:
 st.divider()
 st.header("Model Benchmarking")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Accuracy", f"{r0.accuracy:.2f}")
-with col2:
-    st.metric("F1 Score", f"{r0.f1_score:.2f}")
-with col3:
-    st.metric("Std Dev", f"{r0.std_dev:.2f}")
+best_performer = max(results, key=lambda r: r.accuracy)
+
+cols = st.columns(4)
+with cols[0]:
+    st.metric("Best Model", best_performer.name)
+with cols[1]:
+    st.metric("Accuracy", f"{best_performer.accuracy:.4f}")
+with cols[2]:
+    st.metric("F1 Score", f"{best_performer.f1_score:.4f}")
+with cols[3]:
+    st.metric("Std Dev", f"{best_performer.std_dev:.4f}")
 
 rows = []
 for r in results:
     rows.append(
         {
-            "Model": r.name,
+            "Model": r.name + " + CSP",
             "Accuracy": r.accuracy,
             "F1 Score": r.f1_score,
             "Std Dev": r.std_dev,
@@ -222,36 +225,45 @@ for r in results:
         }
     )
 
-df = pd.DataFrame(rows).sort_values("Accuracy", ascending=False)
+# Removed sorting (.sort_values("Accuracy", ascending=False)) to keep same order as columns.
+df = pd.DataFrame(rows).round({"Accuracy": 4, "F1 Score": 4, "Std Dev": 4, "Inference Time (s)": 8})
 st.dataframe(df, use_container_width=True, hide_index=True)
 
+# Share color scale across confusion matrices
+max_cm_value = max((r.confusion_matrix.max() if r.confusion_matrix is not None else 0 for r in results), default=0)
+
 st.subheader("Confusion Matrix")
-for r in results:
-    cm = r.confusion_matrix
-    if cm is not None:
-        n_classes = cm.shape[0]
-        class_labels = ["Rest", "Left", "Right"][:n_classes] if n_classes <= 3 else [str(i) for i in range(n_classes)]
-        fig_cm = go.Figure(
-            go.Heatmap(
-                z=cm,
-                x=class_labels,
-                y=class_labels,
-                colorscale="Blues",
-                text=cm,
-                texttemplate="%{text}",
-                showscale=True,
+cols = st.columns(len(results))
+for col, r in zip(cols, results):
+    with col:
+        cm = r.confusion_matrix
+        if cm is not None:
+            n_classes = cm.shape[0]
+            class_labels = ["Left", "Right"][:n_classes] if n_classes <= 2 else ["Rest", "Left", "Right"][:n_classes]
+            fig_cm = go.Figure(
+                go.Heatmap(
+                    z=cm,
+                    x=class_labels,
+                    y=class_labels,
+                    colorscale="teal",
+                    text=cm,
+                    texttemplate="%{text}",
+                    showscale=False,
+                    zmin=0,
+                    zmax=max_cm_value,
+                )
             )
-        )
-        fig_cm.update_layout(
-            title=f"{r.name} — Confusion Matrix",
-            xaxis_title="Predicted",
-            yaxis_title="Actual",
-            height=350,
-            margin=dict(l=20, r=20, t=45, b=20),
-        )
-        st.plotly_chart(fig_cm, use_container_width=True)
-    else:
-        st.info(f"{r.name}: No confusion matrix available.")
+            fig_cm.update_layout(
+                title=f"{r.name} — Confusion Matrix",
+                xaxis_title="Predicted",
+                yaxis_title="Actual",
+                height=280,
+                width=280,
+                margin=dict(l=20, r=20, t=45, b=20),
+            )
+            st.plotly_chart(fig_cm, use_container_width=True)
+        else:
+            st.info(f"{r.name}: No confusion matrix available.")
 
 
 # -----------------------------
@@ -266,7 +278,7 @@ _LABEL_NAMES_BINARY = {0: "Left Fist", 1: "Right Fist"}
 
 def _highlight_disagreements(row):
     """Red background for rows where prediction != ground truth."""
-    color = "background-color: #ffcccc" if row["Match"] == "❌" else ""
+    color = "background-color: #4c1616" if row["Match"] == "❌" else ""
     return [color] * len(row)
 
 for r in results:
