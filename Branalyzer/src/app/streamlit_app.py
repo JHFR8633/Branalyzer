@@ -68,8 +68,40 @@ def plot_waveforms_plotly(raw, picks: list[str], t_start: float, duration: float
 
 
 # -----------------------------
-# Cache signal builds
+# Shared caching layer
 # -----------------------------
+# The key idea: load raw + run ICA ONCE per subject, then reuse
+# that work for both the signal viewer AND the model pipeline.
+# Previously these were independent, meaning ICA ran twice.
+
+@st.cache_resource
+def load_and_ref(subject: int) -> "mne.io.Raw":
+    """Load raw EEGBCI data + set average reference. Cached per subject."""
+    raw = prep.load_raw_db(subject)
+    raw = prep.set_average_reference(raw)
+    return raw
+
+
+@st.cache_resource
+def run_ica_cached(subject: int) -> "mne.io.Raw":
+    """Run ICA artifact removal on avg-ref raw. Cached per subject."""
+    raw = load_and_ref(subject)
+    return prep.run_ica_auto(raw.copy())
+
+
+@st.cache_resource
+def get_epochs(subject: int) -> "mne.Epochs":
+    """
+    Full preprocessing -> epochs, reusing the cached ICA result.
+    This is the expensive step that no longer reruns when you
+    change model code or toggle model checkboxes.
+    """
+    ica_clean = run_ica_cached(subject)
+    selected = prep.select_channels(ica_clean.copy(), prep.MOTOR_CHANNELS)
+    filtered = prep.bandpass_mu_beta(selected, l_freq=8.0, h_freq=30.0)
+    return prep.make_epochs(filtered, tmin=0.0, tmax=4.0)
+
+
 @st.cache_resource
 def build_signal_variants(subject: int):
     """
@@ -78,29 +110,28 @@ def build_signal_variants(subject: int):
       filtered_view -> avg ref + channel selection + 1-78 Hz bandpass
       ica_view      -> avg ref + auto ICA artifact removal + channel selection + 8-30 Hz bandpass
 
-    NOTE: Channel selection happens AFTER ICA to match the preprocessing pipeline.
-    The raw_view selects channels upfront only for display purposes.
+    NOTE: Reuses load_and_ref() and run_ica_cached() so ICA is
+    never computed twice for the same subject.
     """
-    raw = prep.load_raw_db(subject)
-    raw = prep.set_average_reference(raw)
+    raw = load_and_ref(subject)
 
-    # Raw 
+    # Raw
     raw_view = raw.copy()
     raw_view = prep.select_channels(raw_view, prep.MOTOR_CHANNELS)
 
-    # Filtered 
+    # Filtered
     filtered = raw.copy()
     filtered = prep.highlowpass_for_ica(filtered, l_freq=1.0, requested_h_freq=100.0)
     filtered = prep.select_channels(filtered, prep.MOTOR_CHANNELS)
     filtered = prep.bandpass_mu_beta(filtered)
 
-    # ICA-cleaned 
-    ica_clean = raw.copy()
-    ica_clean = prep.run_ica_auto(ica_clean)
-    ica_clean = prep.select_channels(ica_clean, prep.MOTOR_CHANNELS)
-    ica_clean = prep.bandpass_mu_beta(ica_clean)
+    # ICA-cleaned (reuses cached ICA)
+    ica_clean = run_ica_cached(subject)
+    ica_view = ica_clean.copy()
+    ica_view = prep.select_channels(ica_view, prep.MOTOR_CHANNELS)
+    ica_view = prep.bandpass_mu_beta(ica_view)
 
-    return raw_view, filtered, ica_clean
+    return raw_view, filtered, ica_view
 
 
 # -----------------------------
@@ -119,13 +150,30 @@ with st.sidebar:
 
     st.caption("Tip: higher downsample = faster plots.")
 
+    st.divider()
+    st.subheader("Models")
+    run_lda = st.checkbox("LDA", value=True)
+    run_svm = st.checkbox("SVM", value=True)
+    run_rf = st.checkbox("Random Forest", value=True)
+
 
 # -----------------------------
-# Benchmarking pipeline
+# Preprocessing (cached — won't rerun on model changes)
 # -----------------------------
-with st.status("Running pipeline…", expanded=False) as status:
-    pipeline_out = run_pipeline(int(subject))
-    status.update(label="Pipeline complete", state="complete")
+with st.status("Preprocessing EEG data…", expanded=False) as status:
+    epochs = get_epochs(int(subject))
+    status.update(label="Preprocessing complete (cached)", state="complete")
+
+# -----------------------------
+# Benchmarking pipeline (only reruns models)
+# -----------------------------
+if not (run_lda or run_svm or run_rf):
+    st.warning("Select at least one model in the sidebar.")
+    st.stop()
+
+with st.status("Running models…", expanded=False) as status:
+    pipeline_out = run_pipeline(epochs, int(subject), run_lda=run_lda, run_svm=run_svm, run_rf=run_rf)
+    status.update(label="Models complete", state="complete")
 
 results = pipeline_out.results
 
