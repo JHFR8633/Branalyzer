@@ -22,7 +22,7 @@ def extract_simple_features(epochs):
     y = epochs.events[:, -1]          # labels
     return X, y
 
-
+# takes pre-cached epochs + model toggles so preprocessing doesn't rerun
 def run_pipeline(
     epochs: mne.Epochs,
     subject: int = 1,
@@ -30,11 +30,6 @@ def run_pipeline(
     run_svm: bool = True,
     run_rf: bool = True,
 ) -> PipelineResult:
-    """
-    Run selected models on pre-processed epochs.
-    Epochs are now passed in (cached externally) so preprocessing
-    doesn't rerun when model code changes.
-    """
     start = time.time()
 
     results = []

@@ -9,98 +9,183 @@ from ml_pipeline import run_pipeline
 import preprocessing as prep
 
 
-# -----------------------------
 # Page config
-# -----------------------------
 st.set_page_config(page_title="Branalyzer", layout="wide")
 st.title("Branalyzer")
 st.subheader("EEG Model Benchmarking Dashboard")
 
 
-# -----------------------------
 # Plotly waveform helper
-# -----------------------------
 def _downsample(data: np.ndarray, factor: int) -> np.ndarray:
     if factor <= 1:
         return data
     return data[:, ::factor]
 
 
-def plot_waveforms_plotly(raw, picks: list[str], t_start: float, duration: float, ds_factor: int, title: str):
+# scrolls through the recording with play/pause
+def plot_waveforms_plotly(
+    raw,
+    picks: list[str],
+    t_start: float,
+    duration: float,
+    ds_factor: int,
+    title: str,
+    scroll_step: float = 0.5,
+    scroll_seconds: float = 30.0,
+    frame_duration_ms: int = 200,
+):
     if raw is None:
         return None
 
     sfreq = float(raw.info["sfreq"])
-    start = max(0, int(t_start * sfreq))
-    stop = max(start + 1, int((t_start + duration) * sfreq))
+    total_time = raw.n_times / sfreq
 
     ch_names = list(raw.ch_names)
     pick_idx = [ch_names.index(ch) for ch in picks if ch in ch_names]
     if not pick_idx:
         return None
 
-    data, times = raw[pick_idx, start:stop]
-    data = _downsample(data, ds_factor)
-    times = times[::ds_factor]
+    # all data at once, slice per frame
+    all_data, all_times = raw[pick_idx, :]
+    all_data = _downsample(all_data, ds_factor)
+    all_times = all_times[::ds_factor]
+    ds_sfreq = sfreq / ds_factor
 
-    scale = np.nanstd(data) if np.nanstd(data) > 0 else 1.0
-    offsets = np.arange(len(pick_idx))[::-1] * scale * 4
+    # y offsets between channels
+    global_scale = np.nanstd(all_data) if np.nanstd(all_data) > 0 else 1.0
+    offsets = np.arange(len(pick_idx))[::-1] * global_scale * 4
 
+    def _window(t0):
+        i0 = max(0, int(t0 * ds_sfreq))
+        i1 = min(len(all_times), int((t0 + duration) * ds_sfreq))
+        if i1 <= i0:
+            i1 = i0 + 1
+        return all_data[:, i0:i1], all_times[i0:i1]
+
+    # initial traces
+    win_data, win_times = _window(t_start)
     fig = go.Figure()
     for i, idx in enumerate(pick_idx):
         fig.add_trace(
             go.Scatter(
-                x=times,
-                y=data[i] + offsets[i],
+                x=win_times,
+                y=win_data[i] + offsets[i],
                 mode="lines",
                 name=ch_names[idx],
-                hovertemplate="t=%{x:.3f}<br>amp=%{y:.3f}<extra></extra>",
+                hovertemplate="t=%{x:.3f}s<br>amp=%{y:.3f}<extra></extra>",
             )
         )
 
+    # fixed y range
+    y_min = float(np.min(all_data) + offsets[-1]) if len(offsets) else 0
+    y_max = float(np.max(all_data) + offsets[0]) if len(offsets) else 1
+    y_pad = (y_max - y_min) * 0.05
+
+    # each frame shifts the window forward
+    end_t = min(t_start + scroll_seconds, total_time - duration)
+    frame_starts = np.arange(t_start, end_t, scroll_step)
+
+    frames = []
+    slider_steps = []
+    for fi, fs in enumerate(frame_starts):
+        fd, ft = _window(fs)
+        frame_data = []
+        for i in range(len(pick_idx)):
+            frame_data.append(go.Scatter(x=ft, y=fd[i] + offsets[i]))
+
+        frames.append(go.Frame(
+            data=frame_data,
+            name=str(fi),
+            layout=go.Layout(
+                xaxis=dict(range=[float(fs), float(fs + duration)]),
+            ),
+        ))
+        slider_steps.append({
+            "args": [[str(fi)], {"frame": {"duration": frame_duration_ms, "redraw": True}, "mode": "immediate"}],
+            "label": f"{fs:.1f}s",
+            "method": "animate",
+        })
+
+    fig.frames = frames
+
     fig.update_layout(
         title=title,
-        height=460,
-        margin=dict(l=20, r=20, t=45, b=20),
+        height=500,
+        margin=dict(l=20, r=20, t=80, b=20),
         legend=dict(orientation="h"),
+        xaxis=dict(title="Time (s)", range=[t_start, t_start + duration]),
+        yaxis=dict(range=[y_min - y_pad, y_max + y_pad]),
+        updatemenus=[
+            {
+                "type": "buttons",
+                "showactive": False,
+                "x": 1.0,
+                "y": 1.18,
+                "xanchor": "right",
+                "yanchor": "top",
+                "buttons": [
+                    {
+                        "label": "▶ Play",
+                        "method": "animate",
+                        "args": [
+                            None,
+                            {
+                                "frame": {"duration": frame_duration_ms, "redraw": True},
+                                "fromcurrent": True,
+                                "transition": {"duration": 0},
+                            },
+                        ],
+                    },
+                    {
+                        "label": "⏸ Pause",
+                        "method": "animate",
+                        "args": [
+                            [None],
+                            {
+                                "frame": {"duration": 0, "redraw": False},
+                                "mode": "immediate",
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+        sliders=[
+            {
+                "active": 0,
+                "steps": slider_steps,
+                "x": 0.0,
+                "len": 1.0,
+                "xanchor": "left",
+                "y": -0.02,
+                "yanchor": "top",
+                "currentvalue": {"prefix": "Window start: ", "visible": True},
+                "transition": {"duration": 0},
+            }
+        ] if slider_steps else [],
     )
     return fig
 
-
-# -----------------------------
-# Shared caching layer
-# -----------------------------
-# The key idea: load raw + run ICA ONCE per subject, then reuse
-# that work for both the signal viewer AND the model pipeline.
-# Previously these were independent, meaning ICA ran twice.
-
+# load raw + avg ref
 @st.cache_resource
-def load_and_ref(subject: int) -> "mne.io.Raw":
-    """Load raw EEGBCI data + set average reference. Cached per subject."""
+def load_and_ref(subject: int):
     raw = prep.load_raw_db(subject)
     raw = prep.set_average_reference(raw)
     return raw
 
-
+# ICA (reused by signal viewer and epoch pipeline)
 @st.cache_resource
-def run_ica_cached(subject: int) -> "mne.io.Raw":
-    """Run ICA artifact removal on avg-ref raw. Cached per subject."""
+def run_ica_cached(subject: int):
     raw = load_and_ref(subject)
     return prep.run_ica_auto(raw.copy())
 
-
+# epochs
 @st.cache_resource
-def get_epochs(subject: int) -> "mne.Epochs":
-    """
-    Full preprocessing -> epochs, reusing the cached ICA result.
-    This is the expensive step that no longer reruns when you
-    change model code or toggle model checkboxes.
-    """
+def get_epochs(subject: int):
     ica_clean = run_ica_cached(subject)
     selected = prep.select_channels(ica_clean.copy(), prep.MOTOR_CHANNELS)
     filtered = prep.bandpass_mu_beta(selected, l_freq=8.0, h_freq=30.0)
     return prep.make_epochs(filtered, tmin=0.0, tmax=4.0)
-
 
 @st.cache_resource
 def build_signal_variants(subject: int):
@@ -109,23 +194,20 @@ def build_signal_variants(subject: int):
       raw_view      -> avg ref + selected channels (for display only)
       filtered_view -> avg ref + channel selection + 1-78 Hz bandpass
       ica_view      -> avg ref + auto ICA artifact removal + channel selection + 8-30 Hz bandpass
-
-    NOTE: Reuses load_and_ref() and run_ica_cached() so ICA is
-    never computed twice for the same subject.
     """
     raw = load_and_ref(subject)
 
-    # Raw
+    # Raw 
     raw_view = raw.copy()
     raw_view = prep.select_channels(raw_view, prep.MOTOR_CHANNELS)
 
-    # Filtered
+    # Filtered 
     filtered = raw.copy()
     filtered = prep.highlowpass_for_ica(filtered, l_freq=1.0, requested_h_freq=100.0)
     filtered = prep.select_channels(filtered, prep.MOTOR_CHANNELS)
     filtered = prep.bandpass_mu_beta(filtered)
 
-    # ICA-cleaned (reuses cached ICA)
+    # ICA-cleaned (reuses ICA above)
     ica_clean = run_ica_cached(subject)
     ica_view = ica_clean.copy()
     ica_view = prep.select_channels(ica_view, prep.MOTOR_CHANNELS)
@@ -134,9 +216,7 @@ def build_signal_variants(subject: int):
     return raw_view, filtered, ica_view
 
 
-# -----------------------------
 # Sidebar controls
-# -----------------------------
 with st.sidebar:
     st.header("Controls")
 
@@ -151,36 +231,42 @@ with st.sidebar:
     st.caption("Tip: higher downsample = faster plots.")
 
     st.divider()
+    st.subheader("Animation")
+    scroll_step = st.select_slider("Scroll step (s)", options=[0.25, 0.5, 1.0, 2.0], value=0.5)
+    scroll_seconds = st.slider("Scroll range (s)", min_value=10, max_value=120, value=30, step=10)
+    frame_speed = st.select_slider("Frame speed (ms)", options=[50, 100, 150, 200, 300, 500], value=200)
+
+    st.divider()
     st.subheader("Models")
     run_lda = st.checkbox("LDA", value=True)
     run_svm = st.checkbox("SVM", value=True)
     run_rf = st.checkbox("Random Forest", value=True)
 
 
-# -----------------------------
-# Preprocessing (cached — won't rerun on model changes)
-# -----------------------------
+
+# Preprocessing
 with st.status("Preprocessing EEG data…", expanded=False) as status:
     epochs = get_epochs(int(subject))
-    status.update(label="Preprocessing complete (cached)", state="complete")
+    status.update(label="Preprocessing complete", state="complete")
 
-# -----------------------------
-# Benchmarking pipeline (only reruns models)
-# -----------------------------
 if not (run_lda or run_svm or run_rf):
     st.warning("Select at least one model in the sidebar.")
     st.stop()
 
+# keyed on subject + model toggles so animation changes don't retrain
+@st.cache_resource
+def run_models(_epochs, subject: int, lda: bool, svm: bool, rf: bool):
+    return run_pipeline(_epochs, subject, run_lda=lda, run_svm=svm, run_rf=rf)
+
+# Benchmarking pipeline
 with st.status("Running models…", expanded=False) as status:
-    pipeline_out = run_pipeline(epochs, int(subject), run_lda=run_lda, run_svm=run_svm, run_rf=run_rf)
+    pipeline_out = run_models(epochs, int(subject), run_lda, run_svm, run_rf)
     status.update(label="Models complete", state="complete")
 
 results = pipeline_out.results
 
 
-# -----------------------------
 # Signal Inspection
-# -----------------------------
 st.divider()
 st.header("Signal Inspection")
 st.write("EEG channel viewer (Raw / Filtered / ICA-Cleaned).")
@@ -198,12 +284,11 @@ try:
 
     with tab_raw:
         fig = plot_waveforms_plotly(
-            raw_view,
-            picks,
-            t_start,
-            float(duration),
-            int(ds_factor),
+            raw_view, picks, t_start, float(duration), int(ds_factor),
             "Raw (avg ref + selected channels)",
+            scroll_step=float(scroll_step),
+            scroll_seconds=float(scroll_seconds),
+            frame_duration_ms=int(frame_speed),
         )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
@@ -212,12 +297,11 @@ try:
 
     with tab_filt:
         fig = plot_waveforms_plotly(
-            filt_view,
-            picks,
-            t_start,
-            float(duration),
-            int(ds_factor),
+            filt_view, picks, t_start, float(duration), int(ds_factor),
             "Filtered (1 Hz highpass + 8-30 Hz bandpass)",
+            scroll_step=float(scroll_step),
+            scroll_seconds=float(scroll_seconds),
+            frame_duration_ms=int(frame_speed),
         )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
@@ -226,12 +310,11 @@ try:
 
     with tab_ica:
         fig = plot_waveforms_plotly(
-            ica_view,
-            picks,
-            t_start,
-            float(duration),
-            int(ds_factor),
+            ica_view, picks, t_start, float(duration), int(ds_factor),
             "ICA-Cleaned",
+            scroll_step=float(scroll_step),
+            scroll_seconds=float(scroll_seconds),
+            frame_duration_ms=int(frame_speed),
         )
         if fig is None:
             st.warning("Nothing to plot (check channel selection).")
@@ -243,9 +326,8 @@ except Exception as e:
     st.code(str(e))
 
 
-# -----------------------------
+
 # Model Benchmarking
-# -----------------------------
 st.divider()
 st.header("Model Benchmarking")
 
@@ -314,9 +396,8 @@ for col, r in zip(cols, results):
             st.info(f"{r.name}: No confusion matrix available.")
 
 
-# -----------------------------
+
 # Event Log
-# -----------------------------
 st.divider()
 st.header("Event Log")
 st.write("Ground truth vs. prediction timeline. Rows highlighted in red indicate epochs where the model disagrees with the ground truth label.")
