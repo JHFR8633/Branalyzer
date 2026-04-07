@@ -102,6 +102,9 @@ def handle_run_preprocessing(subject: int) -> None:
     st.session_state["loaded_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
     st.session_state["preprocessed_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
     st.session_state["raw_view"] = preprocessed["raw_view"]
+    st.session_state["available_channels"] = list(preprocessed["raw_view"].ch_names)
+    st.session_state["default_channels"] = list(preprocessed["raw_view"].ch_names)[:7]
+    #st.session_state["channel_picker"] = list(preprocessed["raw_view"].ch_names)[:7]
     st.session_state["filtered_view"] = preprocessed["filtered_view"]
     st.session_state["ica_view"] = preprocessed["ica_view"]
     st.session_state["epochs"] = preprocessed["epochs"]
@@ -183,6 +186,7 @@ def main() -> None:
         options=available_channels,
         default=default_channels,
         disabled=not st.session_state["data_loaded"],
+        #key="channel_selector",
     )
     selected_models = st.multiselect(
         "Models",
