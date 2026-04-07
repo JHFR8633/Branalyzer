@@ -1,4 +1,7 @@
 # data_ingestion.py
+import logging
+from pathlib import Path
+import re
 import mne
 from mne.datasets import eegbci
 
@@ -34,21 +37,96 @@ def load_eegbci_subject(
 
     return raw
 
+def standardize_channel_names(ch_name:str) -> str:
+    """
+    Attempts to clean channel names for various EEG hardware conventions.
+    This includes common prefixes/suffixes and normalized formatting.
+    """
+    clean_name = re.sub(r'^(EEG\s*)|(-REF|-LE)$', '', ch_name, flags=re.IGNORECASE)
+    clean_name = clean_name.strip(' .').upper().replace('Z', 'z')
+    return clean_name
 
 def load_user_edf(
-    edf_path: str,
-    preload: bool = True,
-    montage_name: str = "standard_1005",
+        edf_path: str | list[str],
+        preload: bool = True,
 ) -> mne.io.Raw:
     """
-    FUTURE: Load user-provided EDF.
+    Loads the user-provided EDF file and returns an MNE Raw object.
 
-    Responsibilities:
-    - Read EDF
-    - (Optional) standardize/rename channels if needed
-    - Set montage if possible
+    Channel names are untouched; the user is responsible for selecting their
+    target channels in the Streamlit UI.
+
+    However, this function does handle:
+        Ignoring non-EEG channels (e.g., EOG, EMG).
+    
+    Parameters:
+        edf_path: Path to the EDF file.
+        preload: Whether to preload the data into memory (default: True).
+
+    Returns:
+        An mne.io.raw object containing only EEG channels.
     """
-    raw = mne.io.read_raw_edf(edf_path, preload=preload)
-    montage = mne.channels.make_standard_montage(montage_name)
-    raw.set_montage(montage)
-    return raw
+    if isinstance(edf_path, str):
+        edf_paths = [edf_path]
+    elif isinstance(edf_path, list):
+        edf_paths = edf_path
+    else:
+        raise ValueError("edf_path must be a string or a list of strings.")
+
+    raws = []
+    for path in edf_paths:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"EDF file not found at path: {path}")
+        
+        if path.suffix.lower() not in (".edf", ".edf+"):
+            raise ValueError(f"Invalid file type: {path.suffix}. Expected .edf or .edf+")
+
+        logging.info(f"Loading EDF file from path: {path}")
+        raw = mne.io.read_raw_edf(
+            path,
+            infer_types=True, 
+            preload=preload
+            )
+
+        # Only keep EEG channels, drop others (e.g., EOG, EMG)
+        eeg_picks = mne.pick_types(
+            raw.info,
+            eeg=True,
+            meg=False
+        )
+        raw_eeg = raw.copy().pick(eeg_picks)
+
+        # Cleaning up channel names by stripping periods and enforcing lowercase where necessary.
+        raw_eeg.rename_channels(standardize_channel_names)
+
+        # Attempting to set montage for ICALabel after cleaning. For now, just using standard 1005. Note: Look into other configurations in the future.
+        try:
+            montage = mne.channels.make_standard_montage("standard_1005")
+            # Crucially, match_case=False and match_alias=True will attempt MNE to recognize channels even if the names don't perfectly match the standard montage.
+            raw_eeg.set_montage(montage, match_case=False, match_alias=True, on_missing="warn")
+        except Exception as e:
+            logging.warning(f"Could not set montage for file {path}. ICALabel performance may not work without electrode positions. Error: {e}")
+
+        logging.info(f"Loaded EDF file with {len(raw_eeg.ch_names)} EEG channels and {len(raw_eeg.times)} time points.")
+        raws.append(raw_eeg)
+
+    if len(raws) == 1:
+        return raws[0]
+
+    combined = mne.concatenate_raws(raws)
+    return combined
+
+
+def extract_annotations(raw: mne.io.Raw) -> dict[str, int]:
+    """
+    Extract annotations from the mne Raw object and return a dictionary of annotation descriptions and their counts.
+    """
+    if len(raw.annotations) == 0:
+        logging.warning("No annotations found in the Raw object.")
+        return {}
+    annotations = {}
+    descriptions = raw.annotations.description
+    for desc in descriptions:
+        annotations[desc] = annotations.get(desc, 0) + 1
+    return annotations

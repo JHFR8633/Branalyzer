@@ -75,7 +75,12 @@ def pipeline_helper(
     Avoids code repetition across rf.py, lda.py, svm.py, which got messy.
     """
 
-    if len(np.unique(y)) < 2:
+    # Dynamic n_splits, specifically for handling small EEG runs.
+    _, y_counts = np.unique(y, return_counts=True)
+    min_count = int(np.min(y_counts))
+    dyn_n_splits = min(n_splits, min_count)
+
+    if dyn_n_splits < 2:
         return ModelResult(
             name=name,
             accuracy=0.0,
@@ -89,7 +94,7 @@ def pipeline_helper(
     
     # Stratified CV
     cv = StratifiedKFold(
-        n_splits=n_splits,
+        n_splits=dyn_n_splits,
         shuffle=True,
         random_state=random_state,
     )

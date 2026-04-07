@@ -1,155 +1,132 @@
+# data_ingestion.py
 import logging
+from pathlib import Path
+import re
 import mne
 from mne.datasets import eegbci
-from mne.preprocessing import ICA
-from mne_icalabel import label_components
-
-# Logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-# Domain constants
-MOTOR_CHANNELS = ["C3", "Cz", "C4", "F3", "F4", "P3", "P4"]
-
-# EEGBCI loading constants
-IMAGERY_RUNS = [4, 8, 12]
-DATA_PATH = "./data"
-
-# EEGBCI annotation names -> internal ids
-EVENT_IDS = {"T0": 1, "T1": 2, "T2": 3}
-
-# Semantic labels -> same ids
-LABEL_MAP = {"rest": 1, "left_fist": 2, "right_fist": 3}
 
 
-def load_raw(data_path: str) -> mne.io.Raw:
-    """Future implementation for user-provided EDF loading."""
-    logging.info("Loading raw imagery run data from user-provided file... [NOT IMPLEMENTED]")
-    raise NotImplementedError("User data ingestion is not yet implemented.")
-
-
-def load_raw_db(subject: int) -> mne.io.Raw:
-    """Load and concatenate PhysioNet EEGBCI imagery runs for a subject."""
-    logging.info(f"Loading raw imagery run data from PhysioNet EEGMMIDB subject {subject}...")
-
-    raw_files = eegbci.load_data(
-        subject,
-        IMAGERY_RUNS,
-        path=DATA_PATH,
-        update_path=True,
-    )
-
-    raws_list = []
-    for file in raw_files:
-        raw = mne.io.read_raw_edf(file, preload=True)
-        eegbci.standardize(raw)
-        raws_list.append(raw)
-
-    raw = mne.concatenate_raws(raws_list)
-    montage_assignment = mne.channels.make_standard_montage("standard_1005")
-    raw.set_montage(montage_assignment)
-
-    logging.info(f"Finished loading and concatenating raw data for subject {subject}.")
-    return raw
-
-
-def set_average_reference(raw: mne.io.Raw) -> mne.io.Raw:
-    raw.set_eeg_reference("average", projection=False)
-    return raw
-
-
-def select_channels(raw: mne.io.Raw, channels: list[str] = MOTOR_CHANNELS) -> mne.io.Raw:
-    raw.pick(channels)
-    return raw
-
-
-def highlowpass_for_ica(raw: mne.io.Raw, l_freq: float = 1.0, requested_h_freq: float = 100.0) -> mne.io.Raw:
+def load_eegbci_subject(
+    subject: int,
+    runs: list[int],
+    data_path: str = "./data",
+    preload: bool = True,
+) -> mne.io.Raw:
     """
-    According to the ICA_Label documentation used in run_ica_auto, the ML model used to automatically classify channels for ICA was trained on data with 1Hz-100Hz.
-    Therefore, before using ICA_Label, we need to use a maximum of 100Hz as a high-pass filter.
-    However, we have to consider the Nyquist frequency of the data (i.e. half of the sampling frequency).
-    If the requested high frequency (100Hz as default) exceeds the Nyquist frequency, we will have to cap the high frequency to that Nyquist frequency instead.
-    For example: If the input data is 160Hz (such as our PhysioNet data), Nyquist is 80Hz, so we will lose information between 80-100Hz. 
-                 So, we cap it to the 80Hz Nyquist frequency instead (but just on the copy of the data for ICA).
+    Load and concatenate EEGBCI runs for a subject.
+
+    Responsibilities:
+    - Download/load PhysioNet EEGBCI EDF files
+    - Read EDF into Raw objects
+    - Standardize channel names/types
+    - Concatenate runs into a single Raw
+    - Set standard montage
+    """
+    raw_files = eegbci.load_data(subject, runs, path=data_path, update_path=True)
+
+    raws = []
+    for f in raw_files:
+        r = mne.io.read_raw_edf(f, preload=preload)
+        eegbci.standardize(r)
+        raws.append(r)
+
+    raw = mne.concatenate_raws(raws)
+
+    montage = mne.channels.make_standard_montage("standard_1005")
+    raw.set_montage(montage)
+
+    return raw
+
+def standardize_channel_names(ch_name:str) -> str:
+    """
+    Attempts to clean channel names for various EEG hardware conventions.
+    This includes common prefixes/suffixes and normalized formatting.
+    """
+    clean_name = re.sub(r'^(EEG\s*)|(-REF|-LE)$', '', ch_name, flags=re.IGNORECASE)
+    clean_name = clean_name.strip(' .').upper().replace('Z', 'z')
+    return clean_name
+
+def load_user_edf(
+        edf_path: str | list[str],
+        preload: bool = True,
+) -> mne.io.Raw:
+    """
+    Loads the user-provided EDF file and returns an MNE Raw object.
+
+    Channel names are untouched; the user is responsible for selecting their
+    target channels in the Streamlit UI.
+
+    However, this function does handle:
+        Ignoring non-EEG channels (e.g., EOG, EMG).
     
-    https://github.com/mne-tools/mne-icalabel/blob/main/mne_icalabel/iclabel/label_components.py
-    """
-    nyquist = raw.info['sfreq'] / 2
-    ica_h_freq = min(requested_h_freq, nyquist - 2.0) # 2 Hz buffer against the Nyquist filter is necessary as MNE needs a 'transition band' for filtering.
+    Parameters:
+        edf_path: Path to the EDF file.
+        preload: Whether to preload the data into memory (default: True).
 
-    if(ica_h_freq < requested_h_freq):
-        logging.info(f"Requested h_freq of {requested_h_freq} exceeds Nyquist frequency of {nyquist}. Setting h_freq to {ica_h_freq} for ICA preprocessing.")
+    Returns:
+        An mne.io.raw object containing only EEG channels.
+    """
+    if isinstance(edf_path, str):
+        edf_paths = [edf_path]
+    elif isinstance(edf_path, list):
+        edf_paths = edf_path
     else:
-        logging.info(f"Using requested h_freq of {requested_h_freq} for ICA preprocessing.")
+        raise ValueError("edf_path must be a string or a list of strings.")
 
-    raw.filter(l_freq=l_freq, h_freq=ica_h_freq)
-    return raw
+    raws = []
+    for path in edf_paths:
+        path = Path(path)
+        if not path.exists():
+            raise FileNotFoundError(f"EDF file not found at path: {path}")
+        
+        if path.suffix.lower() not in (".edf", ".edf+"):
+            raise ValueError(f"Invalid file type: {path.suffix}. Expected .edf or .edf+")
 
+        logging.info(f"Loading EDF file from path: {path}")
+        raw = mne.io.read_raw_edf(
+            path,
+            infer_types=True, 
+            preload=preload
+            )
 
-def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state: int = 25) -> mne.io.Raw:
-    
+        # Only keep EEG channels, drop others (e.g., EOG, EMG)
+        eeg_picks = mne.pick_types(
+            raw.info,
+            eeg=True,
+            meg=False
+        )
+        raw_eeg = raw.copy().pick(eeg_picks)
 
-    if n_components is None:
-        good_channels = mne.pick_types(raw.info, eeg=True, exclude="bads")
-        n_components = len(good_channels) - 1
-        logging.info(f"Automatically setting n_components to {n_components} based on discovered good channels.")
-    else:
-        logging.info(f"Manually set n_components as {n_components}.")
+        # Cleaning up channel names by stripping periods and enforcing lowercase where necessary.
+        raw_eeg.rename_channels(standardize_channel_names)
 
-    # n_components = min(n_channels - 1, 16) # I am leaving this here for a reminder to cap the n_components IF we run into performance issues.
+        # Attempting to set montage for ICALabel after cleaning. For now, just using standard 1005. Note: Look into other configurations in the future.
+        try:
+            montage = mne.channels.make_standard_montage("standard_1005")
+            # Crucially, match_case=False and match_alias=True will attempt MNE to recognize channels even if the names don't perfectly match the standard montage.
+            raw_eeg.set_montage(montage, match_case=False, match_alias=True, on_missing="warn")
+        except Exception as e:
+            logging.warning(f"Could not set montage for file {path}. ICALabel performance may not work without electrode positions. Error: {e}")
 
-    hipass_filtered = highlowpass_for_ica(raw.copy(), l_freq=1.0, requested_h_freq=100.0)\
-    
-    # Some warnings pop up from ICA if method is not "infomax" as MNE defaults to "FastICA." Manually setting it here seems to avoid this issue.
-    ica = ICA(n_components=n_components, method="infomax", fit_params=dict(extended=True), max_iter="auto", random_state=random_state,)
-    ica.fit(hipass_filtered)
-    
-    labels = label_components(hipass_filtered, ica, method="iclabel")
+        logging.info(f"Loaded EDF file with {len(raw_eeg.ch_names)} EEG channels and {len(raw_eeg.times)} time points.")
+        raws.append(raw_eeg)
 
-    labeled_components = labels["labels"]
+    if len(raws) == 1:
+        return raws[0]
 
-    exclusions = [i for i, label in enumerate(labeled_components) if label in ["muscle artifact", "eye blink", "heart beat", "line noise", "channel noise"]]
-    # Labels found via: https://mne.tools/mne-icalabel/0.6/generated/api/mne_icalabel.iclabel.iclabel_label_components.html
-
-    logging.info(f"ICA_Label identified and will exclude: {exclusions}")
-
-    ica.exclude = exclusions
-    ica.apply(raw)
-
-    return raw
-
-
-def bandpass_mu_beta(raw: mne.io.Raw, l_freq: float = 8.0, h_freq: float = 30.0) -> mne.io.Raw:
-    raw.filter(l_freq=l_freq, h_freq=h_freq)
-    return raw
-
-
-def make_epochs(raw: mne.io.Raw, tmin: float = 0.0, tmax: float = 4.0) -> mne.Epochs:
-    events, _ = mne.events_from_annotations(raw, event_id=EVENT_IDS)
-    epochs = mne.Epochs(
-        raw,
-        events,
-        event_id=LABEL_MAP,
-        tmin=tmin,
-        tmax=tmax,
-        baseline=None,
-        preload=True,
-    )
-    return epochs
+    combined = mne.concatenate_raws(raws)
+    return combined
 
 
-def preprocessing(raw: mne.io.Raw) -> mne.Epochs:
+def extract_annotations(raw: mne.io.Raw) -> dict[str, int]:
     """
-    Raw -> cleaned + epoched data.
-    Reminder that we have not implemented resampling yet, as we will determine the need after checking if it's necessary for performance reasons. Note: resampling will have to be done after ICA.
-    No downloading or filesystem assumptions here.
+    Extract annotations from the mne Raw object and return a dictionary of annotation descriptions and their counts.
     """
-
-    raw = set_average_reference(raw)
-    raw = run_ica_auto(raw) # There is a second None = None argument for n_components. We can manually set n_components if we want as 2nd argument integer.
-    raw = select_channels(raw)
-    raw = bandpass_mu_beta(raw, l_freq=8.0, h_freq=30.0)
-
-    epochs = make_epochs(raw, tmin=0.0, tmax=4.0)
-    return epochs
-
-    # Note: a quick test script is (in terminal): python -c "from pipeline import run_pipeline; result = run_pipeline(1); print(result)"
+    if len(raw.annotations) == 0:
+        logging.warning("No annotations found in the Raw object.")
+        return {}
+    annotations = {}
+    descriptions = raw.annotations.description
+    for desc in descriptions:
+        annotations[desc] = annotations.get(desc, 0) + 1
+    return annotations

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import streamlit as st
 
 from ui.results import render_event_log, render_model_benchmarking
@@ -13,6 +15,7 @@ from workflows.session_state import (
     reset_for_new_subject,
 )
 from workflows.signal_workflow import (
+    load_uploaded_data,
     load_subject_data,
     run_model_stage,
     run_preprocessing_stage,
@@ -27,25 +30,42 @@ st.subheader("EEG Model Benchmarking Dashboard")
 _MODEL_OPTIONS = ["LDA", "SVM", "Random Forest"]
 
 
-def handle_load_data(subject: int) -> None:
-    """Load raw data for the chosen subject and reset downstream workflow state.
+def handle_load_data(request: dict[str, Any]) -> None:
+    """Load raw data for the chosen source and reset downstream workflow state.
 
     This updates Streamlit session state for the loaded subject, raw signal views,
     and waveform navigation controls.
     """
+    source = str(request["source"])
+    subject = int(request.get("subject", st.session_state["selected_subject"]))
+
+    st.session_state["selected_source"] = source
     st.session_state["selected_subject"] = subject
+    st.session_state["subject_modal_source"] = source
     st.session_state["subject_modal_value"] = subject
     st.session_state["subject_modal_open"] = False
-    st.session_state["pending_load_subject"] = None
+    st.session_state["pending_load_request"] = None
 
-    if mark_subject_warning(subject):
+    if source == "PhysioNet EEGBCI" and mark_subject_warning(subject):
         reset_for_new_subject()
 
-    loaded = load_subject_data(subject)
-    st.session_state["loaded_subject"] = subject
+    if source == "PhysioNet EEGBCI":
+        loaded = load_subject_data(subject)
+        st.session_state["loaded_subject"] = subject
+    else:
+        loaded = load_uploaded_data(request["files"])
+        st.session_state["loaded_subject"] = None
+
+    st.session_state["loaded_source"] = loaded["loaded_source"]
+    st.session_state["loaded_data_label"] = loaded["loaded_data_label"]
     st.session_state["raw_view"] = loaded["raw_view"]
     st.session_state["available_channels"] = loaded["available_channels"]
     st.session_state["default_channels"] = loaded["default_channels"]
+    st.session_state["loaded_file_names"] = loaded["loaded_file_names"]
+    st.session_state["loaded_file_specs"] = loaded["loaded_file_specs"]
+    st.session_state["loaded_file_info"] = loaded["loaded_file_info"]
+    st.session_state["loaded_annotations"] = loaded["loaded_annotations"]
+    st.session_state["can_preprocess_loaded_data"] = loaded["can_preprocess_loaded_data"]
     st.session_state["data_loaded"] = True
     st.session_state["subject_warning_pending"] = False
     st.session_state["waveform_window_start"] = 0.0
@@ -61,23 +81,31 @@ def handle_run_preprocessing(subject: int) -> None:
     This requires loaded raw data, updates preprocessing-related session state,
     clears model results, and triggers a rerun after completion.
     """
-    if mark_subject_warning(subject):
+    if st.session_state["loaded_source"] == "PhysioNet EEGBCI" and mark_subject_warning(subject):
         reset_for_new_subject()
 
-    if not st.session_state["data_loaded"] or st.session_state["loaded_subject"] != subject:
+    if not st.session_state["data_loaded"]:
+        st.warning("Load data before running preprocessing.")
+        return
+
+    if st.session_state["loaded_source"] == "PhysioNet EEGBCI" and st.session_state["loaded_subject"] != subject:
         st.warning("Load data for the selected subject before running preprocessing.")
         return
 
     with st.status("Preprocessing EEG data...", expanded=False) as status:
-        preprocessed = run_preprocessing_stage(subject)
+        if st.session_state["loaded_source"] == "Upload EDF":
+            preprocessed = run_preprocessing_stage(file_specs=st.session_state["loaded_file_specs"])
+        else:
+            preprocessed = run_preprocessing_stage(subject=subject)
         status.update(label="Preprocessing complete", state="complete")
 
-    st.session_state["loaded_subject"] = subject
-    st.session_state["preprocessed_subject"] = subject
+    st.session_state["loaded_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
+    st.session_state["preprocessed_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
     st.session_state["raw_view"] = preprocessed["raw_view"]
     st.session_state["filtered_view"] = preprocessed["filtered_view"]
     st.session_state["ica_view"] = preprocessed["ica_view"]
     st.session_state["epochs"] = preprocessed["epochs"]
+    st.session_state["preprocessed_data_label"] = preprocessed["preprocessed_data_label"]
     st.session_state["data_loaded"] = True
     st.session_state["preprocessing_ready"] = True
     st.session_state["subject_warning_pending"] = False
@@ -95,15 +123,29 @@ def handle_run_models(subject: int, run_lda: bool, run_svm: bool, run_rf: bool) 
         st.warning("Select at least one model before running the pipeline.")
         return
 
-    if not st.session_state["preprocessing_ready"] or st.session_state["preprocessed_subject"] != subject:
+    if not st.session_state["preprocessing_ready"]:
+        st.warning("Run preprocessing before running models.")
+        return
+
+    if (
+        st.session_state["loaded_source"] == "PhysioNet EEGBCI"
+        and st.session_state["preprocessed_subject"] != subject
+    ):
         st.warning("Run preprocessing for the selected subject before running models.")
         return
 
     with st.status("Running models...", expanded=False) as status:
-        model_output = run_model_stage(st.session_state["epochs"], subject, run_lda, run_svm, run_rf)
+        model_output = run_model_stage(
+            st.session_state["epochs"],
+            st.session_state["preprocessed_data_label"] or f"PhysioNet subject {subject}",
+            run_lda,
+            run_svm,
+            run_rf,
+        )
         status.update(label="Models complete", state="complete")
 
-    st.session_state["modeled_subject"] = subject
+    st.session_state["modeled_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
+    st.session_state["modeled_data_label"] = model_output["modeled_data_label"]
     st.session_state["pipeline_out"] = model_output["pipeline_out"]
     st.session_state["results"] = model_output["results"]
     st.session_state["last_model_flags"] = model_output["last_model_flags"]
@@ -163,6 +205,13 @@ def main() -> None:
             on_run_preprocessing=handle_run_preprocessing,
             on_run_models=handle_run_models,
         )
+
+    if st.session_state["loaded_source"] == "Upload EDF":
+        st.caption("Uploaded EDF data is available for raw inspection in the current app flow.")
+        if st.session_state["loaded_file_info"] is not None:
+            st.write(st.session_state["loaded_file_info"])
+        if st.session_state["loaded_annotations"]:
+            st.write({"Annotations": st.session_state["loaded_annotations"]})
 
     render_signal_inspection(
         picks=picks,
