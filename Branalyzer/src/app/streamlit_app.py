@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import tempfile
+import os
+from data_ingest import load_eegbci_subject, load_user_edf, extract_annotations
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -215,12 +218,67 @@ def build_signal_variants(subject: int):
 
     return raw_view, filtered, ica_view
 
+@st.cache_resource
+def build_signal_variants_from_raw(_raw, cache_key:int):
+    raw = _raw.copy()
+
+    # Raw
+    raw_view = prep.set_average_reference(raw)
+
+    # Filtered
+    filtered = raw.copy()
+    filtered = prep.highlowpass_for_ica(filtered, l_freq=1.0, requested_h_freq=100.0)
+    filtered = prep.bandpass_mu_beta(filtered)
+
+    # ICA-cleaned
+    ica_clean = prep.run_ica_auto(raw.copy())
+    ica_view = ica_clean.copy()
+    ica_view = prep.bandpass_mu_beta(ica_view)
+
+    return raw_view, filtered, ica_view
+
+@st.cache_resource
+def load_physionet(subject: int):
+    return load_eegbci_subject(subject, runs=[4, 8, 12])
+
+@st.cache_resource
+def load_user_data(file_keys: tuple[str, ...], _file_paths: list[str]):
+    # When temp file is created in file_upload_helper, the path is changed on each run (i.e., a slider change)
+    # Because Streamlit is caching these inputs, it is different each time and re-loads the files on each interaction.
+    # To avoid this, we can use the file keys (e.g. "S001R01.edf" from PhysioNet) as the cache key.
+    # Underscoring _file_paths to indiciate we don't want the file path to be the cache key, just the file name essentially.
+    return load_user_edf(list(_file_paths))
+
+@st.cache_resource
+def run_preprocessing(_raw, cache_key: int):
+    return prep.preprocessing(_raw)
+
+
+
+def file_upload_helper(uploaded_files) -> list[str]:
+    """ Streamlit's file_uploader returns in-memory bytes, not disk paths,
+        so we need to write them to disk first, so our preprocessing pipeline can read them.
+        https://docs.streamlit.io/develop/api-reference/widgets/st.file_uploader
+
+        Input is a list of uploaded_files and returns a list of file paths to those temporary files."""
+    temp = tempfile.mkdtemp()
+    paths = []
+    for file in uploaded_files:
+        path = os.path.join(temp, file.name)
+        with open(path, "wb") as output:
+            output.write(file.getbuffer())
+        paths.append(path)
+    return paths
 
 # Sidebar controls
 with st.sidebar:
     st.header("Controls")
 
-    subject = st.number_input("PhysioNet Subject", min_value=1, max_value=109, value=1, step=1)
+    source = st.selectbox("Data Source", options=["Upload EDF", "PhysioNet EEGBCI"], index=0)
+    if source == "PhysioNet EEGBCI":
+        subject = st.number_input("PhysioNet Subject", min_value=1, max_value=109, value=1, step=1)
+    else:
+        uploaded_files = st.file_uploader("Upload EDF file(s)", type=["edf", "edf+"], accept_multiple_files=True)
 
     st.divider()
     st.subheader("Waveform Window")
@@ -242,11 +300,36 @@ with st.sidebar:
     run_svm = st.checkbox("SVM", value=True)
     run_rf = st.checkbox("Random Forest", value=True)
 
+# Load data depending on data source
+if source == "PhysioNet EEGBCI":
+    raw = load_physionet(int(subject))
+else:
+    if not uploaded_files:
+        st.warning("Please upload at least one EDF file to proceed.")
+        st.stop()
+    file_paths = file_upload_helper(uploaded_files)
+    file_keys = tuple(f.name for f in uploaded_files)
+    raw = load_user_data(file_keys, file_paths)
 
+    st.sidebar.divider()
+    st.sidebar.subheader("File Info")
+    st.sidebar.write(f"Channels: {len(raw.ch_names)}")
+    st.sidebar.write(f"Sampling Frequency: {raw.info['sfreq']} Hz")
+    st.sidebar.write(f"Duration: {raw.n_times / raw.info['sfreq']:.2f} seconds")
+
+    annotations = extract_annotations(raw)
+    if annotations:
+        st.sidebar.write("Annotations found:")
+        for desc, count in annotations.items():
+            st.sidebar.write(f"  {desc}: {count}")
+    else:
+        st.sidebar.write("No annotations found in the uploaded data.")
+cache_key = int(subject) if source == "PhysioNet EEGBCI" else hash(file_keys)
 
 # Preprocessing
 with st.status("Preprocessing EEG data…", expanded=False) as status:
-    epochs = get_epochs(int(subject))
+    cache_key = int(subject) if source == "PhysioNet EEGBCI" else hash(file_keys)
+    epochs = run_preprocessing(raw, cache_key)
     status.update(label="Preprocessing complete", state="complete")
 
 if not (run_lda or run_svm or run_rf):
@@ -255,12 +338,14 @@ if not (run_lda or run_svm or run_rf):
 
 # keyed on subject + model toggles so animation changes don't retrain
 @st.cache_resource
-def run_models(_epochs, subject: int, lda: bool, svm: bool, rf: bool):
-    return run_pipeline(_epochs, subject, run_lda=lda, run_svm=svm, run_rf=rf)
+def run_models(_epochs, cache_key: int, lda: bool, svm: bool, rf: bool):
+    return run_pipeline(_epochs, run_lda=lda, run_svm=svm, run_rf=rf)
+
+
 
 # Benchmarking pipeline
 with st.status("Running models…", expanded=False) as status:
-    pipeline_out = run_models(epochs, int(subject), run_lda, run_svm, run_rf)
+    pipeline_out = run_models(epochs, cache_key, run_lda, run_svm, run_rf)
     status.update(label="Models complete", state="complete")
 
 results = pipeline_out.results
@@ -273,7 +358,10 @@ st.write("EEG channel viewer (Raw / Filtered / ICA-Cleaned).")
 
 try:
     with st.status("Loading EEG + building signal variants…", expanded=False) as status:
-        raw_view, filt_view, ica_view = build_signal_variants(int(subject))
+        if source == "PhysioNet EEGBCI":
+            raw_view, filt_view, ica_view = build_signal_variants(int(subject))
+        else:
+            raw_view, filt_view, ica_view = build_signal_variants_from_raw(raw, cache_key)
         status.update(label="Signals ready", state="complete")
 
     all_channels = list(raw_view.ch_names)

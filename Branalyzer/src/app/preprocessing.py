@@ -1,6 +1,6 @@
 import logging
 import mne
-from mne.datasets import eegbci
+from mne.datasets import eegbci # Old import from PhysioNet, but kept for reference in the future.
 from mne.preprocessing import ICA
 from mne_icalabel import label_components
 
@@ -19,13 +19,6 @@ EVENT_IDS = {"T0": 1, "T1": 2, "T2": 3}
 
 # Semantic labels -> same ids
 LABEL_MAP = {"rest": 1, "left_fist": 2, "right_fist": 3}
-
-
-def load_raw(data_path: str) -> mne.io.Raw:
-    """Future implementation for user-provided EDF loading."""
-    logging.info("Loading raw imagery run data from user-provided file... [NOT IMPLEMENTED]")
-    raise NotImplementedError("User data ingestion is not yet implemented.")
-
 
 def load_raw_db(subject: int) -> mne.io.Raw:
     """Load and concatenate PhysioNet EEGBCI imagery runs for a subject."""
@@ -50,7 +43,6 @@ def load_raw_db(subject: int) -> mne.io.Raw:
 
     logging.info(f"Finished loading and concatenating raw data for subject {subject}.")
     return raw
-
 
 def set_average_reference(raw: mne.io.Raw) -> mne.io.Raw:
     raw.set_eeg_reference("average", projection=False)
@@ -123,21 +115,39 @@ def bandpass_mu_beta(raw: mne.io.Raw, l_freq: float = 8.0, h_freq: float = 30.0)
     return raw
 
 
-def make_epochs(raw: mne.io.Raw, tmin: float = 0.0, tmax: float = 4.0) -> mne.Epochs:
-    events, _ = mne.events_from_annotations(raw, event_id=EVENT_IDS)
+def make_epochs(
+    raw: mne.io.Raw, 
+    tmin: float = 0.0, tmax: float = 4.0,
+    event_ids: dict[str, int] = EVENT_IDS, 
+    label_map: dict[str, int] = LABEL_MAP
+    ) -> mne.Epochs:
+
+    # Try block for unknown annotations.
+    try:
+        events, _ = mne.events_from_annotations(raw, event_id=event_ids)
+    except ValueError as e:
+        logging.error(f"Error extracting events from annotations: {e}")
+        events = None # This is essentially for continuous data.
+
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=LABEL_MAP,
+        event_id=label_map,
         tmin=tmin,
         tmax=tmax,
         baseline=None,
         preload=True,
+        on_missing="warn",
     )
     return epochs
 
 
-def preprocessing(raw: mne.io.Raw) -> mne.Epochs:
+def preprocessing(
+    raw: mne.io.Raw,
+    channels: list[str] = MOTOR_CHANNELS,
+    event_ids: dict[str, int] = EVENT_IDS,
+    label_map: dict[str, int] = LABEL_MAP,
+    ) -> mne.Epochs:
     """
     Raw -> cleaned + epoched data.
     Reminder that we have not implemented resampling yet, as we will determine the need after checking if it's necessary for performance reasons. Note: resampling will have to be done after ICA.
@@ -146,10 +156,10 @@ def preprocessing(raw: mne.io.Raw) -> mne.Epochs:
 
     raw = set_average_reference(raw)
     raw = run_ica_auto(raw) # There is a second None = None argument for n_components. We can manually set n_components if we want as 2nd argument integer.
-    raw = select_channels(raw)
+    raw = select_channels(raw, channels)
     raw = bandpass_mu_beta(raw, l_freq=8.0, h_freq=30.0)
 
-    epochs = make_epochs(raw, tmin=0.0, tmax=4.0)
+    epochs = make_epochs(raw, event_ids=event_ids, label_map=label_map, tmin=0.0, tmax=4.0)
     return epochs
 
     # Note: a quick test script is (in terminal): python -c "from pipeline import run_pipeline; result = run_pipeline(1); print(result)"
