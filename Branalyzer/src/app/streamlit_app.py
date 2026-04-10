@@ -38,6 +38,9 @@ def handle_load_data(request: dict[str, Any]) -> None:
     """
     source = str(request["source"])
     subject = int(request.get("subject", st.session_state["selected_subject"]))
+    extended_runs = bool(request.get("extended_runs", False))
+    print(f"DEBUG handle_load_data: subject={subject}, extended_runs={extended_runs}")
+    st.session_state["use_extended_runs"] = extended_runs
 
     st.session_state["selected_source"] = source
     st.session_state["selected_subject"] = subject
@@ -50,7 +53,7 @@ def handle_load_data(request: dict[str, Any]) -> None:
         reset_for_new_subject()
 
     if source == "PhysioNet EEGBCI":
-        loaded = load_subject_data(subject)
+        loaded = load_subject_data(subject, extended_runs=extended_runs)
         st.session_state["loaded_subject"] = subject
     else:
         loaded = load_uploaded_data(request["files"])
@@ -96,7 +99,7 @@ def handle_run_preprocessing(subject: int) -> None:
         if st.session_state["loaded_source"] == "Upload EDF":
             preprocessed = run_preprocessing_stage(file_specs=st.session_state["loaded_file_specs"])
         else:
-            preprocessed = run_preprocessing_stage(subject=subject)
+            preprocessed = run_preprocessing_stage(subject=subject, extended_runs=st.session_state["use_extended_runs"])
         status.update(label="Preprocessing complete", state="complete")
 
     st.session_state["loaded_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
@@ -144,6 +147,7 @@ def handle_run_models(subject: int, run_lda: bool, run_svm: bool, run_rf: bool) 
             run_lda,
             run_svm,
             run_rf,
+            st.session_state["use_extended_runs"],
         )
         status.update(label="Models complete", state="complete")
 

@@ -44,6 +44,7 @@ _DEFAULT_STATE = {
     "preprocessing_ready": False,
     "models_ready": False,
     "subject_warning_pending": False,
+    "use_extended_runs": False,
 }
 
 

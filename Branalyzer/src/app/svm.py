@@ -13,14 +13,14 @@ def run_csp_svm(
     epochs: mne.Epochs,
     *,
     name: str = "SVM",
-    crop_tmin: float = 1.0,
-    crop_tmax: float = 2.0,
+    crop_tmin: float = 0.5,
+    crop_tmax: float = 3.5,
     drop_rest: bool = True,
     # These codes should match epoching() event_id
     rest_code: int = 1,
     left_code: int = 2,
     right_code: int = 3,
-    n_components: int = 4,
+    n_components: int = 6,
     n_splits: int = 10,
     random_state: int = 42,
 ) -> ModelResult:
@@ -37,12 +37,12 @@ def run_csp_svm(
         right_code=right_code,
     )
     
-    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
-    svm = SVC(kernel="linear", random_state=random_state)
+    csp = CSP(n_components=n_components, reg="ledoit_wolf", log=True, norm_trace=False)
+    svm = SVC(kernel="rbf", C=1.0, gamma="scale", random_state=random_state)
     clf = Pipeline([("csp", csp), ("svm", svm)])
 
     meta["n_components"] = n_components
-    meta["kernel"] = "linear"
+    meta["kernel"] = "rbf"
 
     return pipeline_helper(
         clf, X, y,

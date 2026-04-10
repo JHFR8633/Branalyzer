@@ -32,6 +32,11 @@ def render_load_data_dialog() -> None:
             step=1,
             key="load_data_subject_input",
         )
+        use_extended = st.checkbox(
+            "Use extended imagery runs (may help weak subjects)",
+            value=False,
+            key="load_data_extended_runs",
+        )
     else:
         uploaded_files = st.file_uploader(
             "Upload EDF file(s)",
@@ -55,6 +60,7 @@ def render_load_data_dialog() -> None:
             request = {
                 "source": source,
                 "subject": int(subject_value),
+                "extended_runs": use_extended,
             }
         else:
             if not uploaded_files:

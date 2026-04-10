@@ -120,7 +120,7 @@ def bandpass_mu_beta(raw: mne.io.Raw, l_freq: float = 8.0, h_freq: float = 30.0)
 
 def make_epochs(
     raw: mne.io.Raw, 
-    tmin: float = 0.0, tmax: float = 4.0,
+    tmin: float = -0.5, tmax: float = 4.0,
     event_ids: dict[str, int] = EVENT_IDS, 
     label_map: dict[str, int] = LABEL_MAP
     ) -> mne.Epochs:
@@ -162,7 +162,7 @@ def preprocessing(
     raw = select_channels(raw, channels)
     raw = bandpass_mu_beta(raw, l_freq=8.0, h_freq=30.0)
 
-    epochs = make_epochs(raw, event_ids=event_ids, label_map=label_map, tmin=0.0, tmax=4.0)
+    epochs = make_epochs(raw, event_ids=event_ids, label_map=label_map, tmin=-0.5, tmax=4.0)
     return epochs
 
     # Note: a quick test script is (in terminal): python -c "from pipeline import run_pipeline; result = run_pipeline(1); print(result)"

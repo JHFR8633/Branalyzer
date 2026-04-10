@@ -69,9 +69,10 @@ def _preprocessing_backend_available() -> bool:
 
 
 @st.cache_resource
-def load_physionet_raw(subject: int):
-    """Load a PhysioNet EEGBCI subject and return the referenced raw recording."""
-    raw = ingest.load_eegbci_subject(subject, runs=[4, 8, 12])
+def load_physionet_raw(subject: int, extended: bool = False):
+    runs = [4, 6, 8, 10, 12, 14] if extended else [4, 8, 12]
+    print(f"Loading subject {subject} with runs: {runs}")
+    raw = ingest.load_eegbci_subject(subject, runs=runs)
     return _apply_average_reference(raw)
 
 
@@ -84,28 +85,25 @@ def load_uploaded_raw(file_specs: tuple[tuple[str, bytes], ...]):
 
 
 @st.cache_resource
-def run_ica_cached(subject: int):
-    """Run ICA for a PhysioNet subject using the cached preprocessing backend."""
+def run_ica_cached(subject: int, extended: bool = False):
     _ensure_preprocessing_backend()
-    raw = load_physionet_raw(subject)
+    raw = load_physionet_raw(subject, extended)
     return prep.run_ica_auto(raw.copy())
 
 
 @st.cache_resource
-def get_epochs(subject: int):
-    """Build cached motor-imagery epochs for a PhysioNet subject."""
+def get_epochs(subject: int, extended: bool = False):
     _ensure_preprocessing_backend()
-    ica_clean = run_ica_cached(subject)
+    ica_clean = run_ica_cached(subject, extended)
     selected = prep.select_channels(ica_clean.copy(), prep.MOTOR_CHANNELS)
     filtered = prep.bandpass_mu_beta(selected, l_freq=8.0, h_freq=30.0)
     return prep.make_epochs(filtered, tmin=0.0, tmax=4.0)
 
 
 @st.cache_resource
-def build_signal_variants(subject: int):
-    """Build raw, filtered, and ICA-cleaned signal views for PhysioNet data."""
+def build_signal_variants(subject: int, extended: bool = False):
     _ensure_preprocessing_backend()
-    raw = load_physionet_raw(subject)
+    raw = load_physionet_raw(subject, extended)
 
     raw_view = prep.select_channels(raw.copy(), prep.MOTOR_CHANNELS)
 
@@ -114,7 +112,7 @@ def build_signal_variants(subject: int):
     filtered_view = prep.select_channels(filtered_view, prep.MOTOR_CHANNELS)
     filtered_view = prep.bandpass_mu_beta(filtered_view)
 
-    ica_view = run_ica_cached(subject)
+    ica_view = run_ica_cached(subject, extended)
     ica_view = prep.select_channels(ica_view.copy(), prep.MOTOR_CHANNELS)
     ica_view = prep.bandpass_mu_beta(ica_view)
 
@@ -149,14 +147,12 @@ def get_epochs_for_upload(file_specs: tuple[tuple[str, bytes], ...]):
 
 
 @st.cache_resource
-def run_models(_epochs, subject_label: str, lda: bool, svm: bool, rf: bool):
-    """Run the selected model pipeline with Streamlit resource caching enabled."""
+def run_models(_epochs, subject_label: str, lda: bool, svm: bool, rf: bool, extended: bool = False):
     return run_pipeline(_epochs, subject=subject_label, run_lda=lda, run_svm=svm, run_rf=rf)
 
 
-def load_subject_data(subject: int):
-    """Load the raw inspection view and channel metadata for one PhysioNet subject."""
-    raw_view = load_physionet_raw(subject).copy()
+def load_subject_data(subject: int, extended_runs: bool = False):
+    raw_view = load_physionet_raw(subject, extended_runs).copy()
     available_channels = list(raw_view.ch_names)
     return {
         "raw_view": raw_view,
@@ -197,15 +193,14 @@ def load_uploaded_data(file_specs: tuple[tuple[str, bytes], ...]):
     }
 
 
-def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[str, bytes], ...] | None = None):
-    """Run the preprocessing stage for either PhysioNet or uploaded EDF data."""
+def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[str, bytes], ...] | None = None, extended_runs: bool = False):
     if file_specs is not None:
         raw_view, filtered_view, ica_view = build_signal_variants_for_upload(file_specs)
         epochs = get_epochs_for_upload(file_specs)
         data_label = f"Uploaded EDF ({len(file_specs)} file{'s' if len(file_specs) != 1 else ''})"
     elif subject is not None:
-        raw_view, filtered_view, ica_view = build_signal_variants(subject)
-        epochs = get_epochs(subject)
+        raw_view, filtered_view, ica_view = build_signal_variants(subject, extended_runs)
+        epochs = get_epochs(subject, extended_runs)
         data_label = f"PhysioNet subject {subject}"
     else:
         raise ValueError("run_preprocessing_stage requires either a subject or uploaded file specs.")
@@ -219,9 +214,8 @@ def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[
     }
 
 
-def run_model_stage(epochs, subject_label: str, lda: bool, svm: bool, rf: bool):
-    """Run the selected models and package the pipeline outputs for session state."""
-    pipeline_out = run_models(epochs, subject_label, lda, svm, rf)
+def run_model_stage(epochs, subject_label: str, lda: bool, svm: bool, rf: bool, extended: bool = False):
+    pipeline_out = run_models(epochs, subject_label, lda, svm, rf, extended)
     return {
         "pipeline_out": pipeline_out,
         "results": pipeline_out.results,
