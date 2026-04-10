@@ -80,19 +80,22 @@ def highlowpass_for_ica(raw: mne.io.Raw, l_freq: float = 1.0, requested_h_freq: 
 def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state: int = 25) -> mne.io.Raw:
     
 
+    
+    if raw.info['sfreq'] > 128:
+        logging.info(f"Resampling from {raw.info['sfreq']} Hz to 128 Hz before ICA.")
+        raw = raw.copy().resample(128)
+
     if n_components is None:
         good_channels = mne.pick_types(raw.info, eeg=True, exclude="bads")
-        n_components = len(good_channels) - 1
-        logging.info(f"Automatically setting n_components to {n_components} based on discovered good channels.")
+        n_components = min(len(good_channels) - 1, 20)
+        logging.info(f"Automatically setting n_components to {n_components} (capped at 20).")
     else:
         logging.info(f"Manually set n_components as {n_components}.")
 
-    # n_components = min(n_channels - 1, 16) # I am leaving this here for a reminder to cap the n_components IF we run into performance issues.
+    hipass_filtered = highlowpass_for_ica(raw.copy(), l_freq=1.0, requested_h_freq=100.0)
 
-    hipass_filtered = highlowpass_for_ica(raw.copy(), l_freq=1.0, requested_h_freq=100.0)\
-    
-    # Some warnings pop up from ICA if method is not "infomax" as MNE defaults to "FastICA." Manually setting it here seems to avoid this issue.
-    ica = ICA(n_components=n_components, method="infomax", fit_params=dict(extended=True), max_iter="auto", random_state=random_state,)
+    # picard is faster than infomax
+    ica = ICA(n_components=n_components, method="picard", max_iter="auto", random_state=random_state)
     ica.fit(hipass_filtered)
     
     labels = label_components(hipass_filtered, ica, method="iclabel")

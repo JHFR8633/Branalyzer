@@ -9,5 +9,9 @@ services:
       - ./src:/app/src
       - ./data:/app/data
       - ./configs:/app/configs
+      - mne-cache:/app/data/MNE-eegbci-data
     environment:
       - PYTHONUNBUFFERED=1
+
+volumes:
+  mne-cache:
