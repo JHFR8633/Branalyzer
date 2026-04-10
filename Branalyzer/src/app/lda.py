@@ -13,14 +13,14 @@ def run_csp_lda(
     epochs: mne.Epochs,
     *,
     name: str = "LDA",
-    crop_tmin: float = 0.5,
-    crop_tmax: float = 3.5,
+    crop_tmin: float = 1.0,
+    crop_tmax: float = 2.0,
     drop_rest: bool = True,
     # These codes should match epoching() event_id
     rest_code: int = 1,
     left_code: int = 2,
     right_code: int = 3,
-    n_components: int = 6,
+    n_components: int = 4,
     n_splits: int = 10,
     random_state: int = 42,
 ) -> ModelResult:
@@ -37,8 +37,8 @@ def run_csp_lda(
         right_code=right_code,
     )
     
-    csp = CSP(n_components=n_components, reg="ledoit_wolf", log=True, norm_trace=False)
-    lda = LinearDiscriminantAnalysis(solver="lsqr", shrinkage="auto")
+    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
+    lda = LinearDiscriminantAnalysis()
     clf = Pipeline([("csp", csp), ("lda", lda)])
 
     meta["n_components"] = n_components

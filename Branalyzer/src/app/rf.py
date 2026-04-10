@@ -13,14 +13,14 @@ def run_csp_rf(
     epochs: mne.Epochs,
     *,
     name: str = "Random Forest",
-    crop_tmin: float = 0.5,
-    crop_tmax: float = 3.5,
+    crop_tmin: float = 1.0,
+    crop_tmax: float = 2.0,
     drop_rest: bool = True,
     # These codes should match epoching() event_id
     rest_code: int = 1,
     left_code: int = 2,
     right_code: int = 3,
-    n_components: int = 6,
+    n_components: int = 4,
     n_splits: int = 10,
     n_estimators: int = 200,
     random_state: int = 42,
@@ -38,7 +38,7 @@ def run_csp_rf(
         right_code=right_code,
     )
     
-    csp = CSP(n_components=n_components, reg="ledoit_wolf", log=True, norm_trace=False)
+    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
     rf = RandomForestClassifier(n_estimators=n_estimators, random_state=random_state)
     clf = Pipeline([("csp", csp), ("rf", rf)])
 

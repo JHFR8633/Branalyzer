@@ -87,7 +87,7 @@ def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state:
 
     if n_components is None:
         good_channels = mne.pick_types(raw.info, eeg=True, exclude="bads")
-        n_components = min(len(good_channels) - 1, 20)
+        n_components = min(len(good_channels) - 1, 25)
         logging.info(f"Automatically setting n_components to {n_components} (capped at 20).")
     else:
         logging.info(f"Manually set n_components as {n_components}.")
@@ -95,7 +95,7 @@ def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state:
     hipass_filtered = highlowpass_for_ica(raw.copy(), l_freq=1.0, requested_h_freq=100.0)
 
     # picard is faster than infomax
-    ica = ICA(n_components=n_components, method="picard", max_iter="auto", random_state=random_state)
+    ica = ICA(n_components=n_components, method="picard", fit_params=dict(ortho=False, extended=True), max_iter="auto", random_state=random_state)
     ica.fit(hipass_filtered)
     
     labels = label_components(hipass_filtered, ica, method="iclabel")
