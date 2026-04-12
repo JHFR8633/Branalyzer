@@ -29,16 +29,21 @@ def run_pipeline(
     run_lda: bool = True,
     run_svm: bool = True,
     run_rf: bool = True,
+    rest_code = 1,
+    class_a_code = 2,
+    class_b_code = 3,
 ) -> PipelineResult:
     start = time.time()
+    code_kwargs = dict(rest_code=rest_code, class_a_code=class_a_code, class_b_code=class_b_code)
+
 
     results = []
     if run_lda:
-        results.append(run_csp_lda(epochs))
+        results.append(run_csp_lda(epochs, **code_kwargs))
     if run_svm:
-        results.append(run_csp_svm(epochs))
+        results.append(run_csp_svm(epochs, **code_kwargs))
     if run_rf:
-        results.append(run_csp_rf(epochs))
+        results.append(run_csp_rf(epochs, **code_kwargs))
 
     elapsed = time.time() - start
 
@@ -47,5 +52,5 @@ def run_pipeline(
         results=results,
         n_subjects=1,
         n_epochs=len(epochs),
-        notes=f"EEGBCI -> preprocessing -> CSP + [{models_run}] (subject {subject}) | Model time: {elapsed:.2f}s",
+        notes=f"User file -> preprocessing -> CSP + [{models_run}] (subject {subject}) | Model time: {elapsed:.2f}s",
     )

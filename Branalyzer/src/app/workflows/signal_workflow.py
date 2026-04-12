@@ -136,19 +136,30 @@ def build_signal_variants_for_upload(file_specs: tuple[tuple[str, bytes], ...]):
 
     return raw_view, filtered_view, ica_view
 
-
 @st.cache_resource
-def get_epochs_for_upload(file_specs: tuple[tuple[str, bytes], ...]):
+def get_epochs_for_upload(file_specs: tuple[tuple[str, bytes], ...],
+                          event_map_tuple: tuple[tuple[str, int]] | None = None,):
     """Build epochs for uploaded EDF data using the shared preprocessing backend."""
     _ensure_preprocessing_backend()
     ica_clean = prep.run_ica_auto(load_uploaded_raw(file_specs).copy())
     filtered = prep.bandpass_mu_beta(ica_clean, l_freq=8.0, h_freq=30.0)
+
+    if event_map_tuple is not None:
+        # Convert the tuple of tuples to a dictionary
+        event_map = dict(event_map_tuple)
+        return prep.make_epochs(filtered, tmin=0.0, tmax=4.0,
+                                event_ids=event_map, label_map=event_map)
+
     return prep.make_epochs(filtered, tmin=0.0, tmax=4.0)
 
 
 @st.cache_resource
-def run_models(_epochs, subject_label: str, lda: bool, svm: bool, rf: bool, extended: bool = False):
-    return run_pipeline(_epochs, subject=subject_label, run_lda=lda, run_svm=svm, run_rf=rf)
+def run_models(_epochs, subject_label: str, lda: bool, svm: bool, rf: bool, rest_code: int, class_a_code: int, class_b_code: int, extended: bool = False):
+    """Run the selected model pipeline with Streamlit resource caching enabled."""
+    return run_pipeline(_epochs, 
+                        subject=subject_label, 
+                        run_lda=lda, run_svm=svm, run_rf=rf, 
+                        rest_code=rest_code, class_a_code=class_a_code, class_b_code=class_b_code)
 
 
 def load_subject_data(subject: int, extended_runs: bool = False):
@@ -193,10 +204,14 @@ def load_uploaded_data(file_specs: tuple[tuple[str, bytes], ...]):
     }
 
 
-def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[str, bytes], ...] | None = None, extended_runs: bool = False):
+def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[str, bytes], ...] | None = None,
+                            event_map: dict[str, int] | None = None, extended_runs: bool = False):
+    """Run the preprocessing stage for either PhysioNet or uploaded EDF data."""
     if file_specs is not None:
         raw_view, filtered_view, ica_view = build_signal_variants_for_upload(file_specs)
-        epochs = get_epochs_for_upload(file_specs)
+        event_map = event_map
+        event_map_hashable = tuple(event_map.items()) if event_map else None
+        epochs = get_epochs_for_upload(file_specs, event_map_tuple=event_map_hashable)
         data_label = f"Uploaded EDF ({len(file_specs)} file{'s' if len(file_specs) != 1 else ''})"
     elif subject is not None:
         raw_view, filtered_view, ica_view = build_signal_variants(subject, extended_runs)
@@ -215,7 +230,13 @@ def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[
 
 
 def run_model_stage(epochs, subject_label: str, lda: bool, svm: bool, rf: bool, extended: bool = False):
-    pipeline_out = run_models(epochs, subject_label, lda, svm, rf, extended)
+    """Run the selected models and package the pipeline outputs for session state."""
+    code_map = st.session_state.get("user_code_map") or {}
+    pipeline_out = run_models(epochs, subject_label, lda, svm, rf, 
+                              rest_code=code_map.get("rest_code", 1), 
+                              class_a_code=code_map.get("class_a_code", 2), 
+                              class_b_code=code_map.get("class_b_code", 3),
+                              extended=extended)
     return {
         "pipeline_out": pipeline_out,
         "results": pipeline_out.results,

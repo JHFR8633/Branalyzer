@@ -4,12 +4,15 @@ import streamlit as st
 
 
 _DEFAULT_STATE = {
-    "selected_source": "PhysioNet EEGBCI",
+    # Source selection
+    "selected_source": "Upload EDF",
     "selected_subject": 1,
     "subject_modal_open": False,
     "subject_modal_source": "PhysioNet EEGBCI",
     "subject_modal_value": 1,
     "pending_load_request": None,
+
+    # Waveform controls
     "waveform_window_start": 0.0,
     "waveform_step_size": 1,
     "waveform_jump_to": 0,
@@ -19,13 +22,11 @@ _DEFAULT_STATE = {
     "waveform_window_size": 10,
     "waveform_frame_speed": 200,
     "waveform_autoplay": False,
+
+    # Loaded data
     "loaded_subject": None,
     "loaded_source": None,
     "loaded_data_label": None,
-    "preprocessed_subject": None,
-    "preprocessed_data_label": None,
-    "modeled_subject": None,
-    "modeled_data_label": None,
     "raw_view": None,
     "available_channels": [],
     "default_channels": [],
@@ -33,20 +34,44 @@ _DEFAULT_STATE = {
     "loaded_file_specs": None,
     "loaded_file_info": None,
     "loaded_annotations": {},
+
+    # Preprocessing
+    "preprocessed_subject": None,
+    "preprocessed_data_label": None,
     "filtered_view": None,
     "ica_view": None,
     "epochs": None,
+    "use_extended_runs": False,
+
+    # Models
+    "modeled_subject": None,
+    "modeled_data_label": None,
     "pipeline_out": None,
     "results": None,
     "last_model_flags": None,
+
+    # Workflow flags
     "data_loaded": False,
     "can_preprocess_loaded_data": False,
     "preprocessing_ready": False,
     "models_ready": False,
     "subject_warning_pending": False,
-    "use_extended_runs": False,
-}
 
+    # User annotation mapping
+    "user_annotations": {},
+    "user_assignments": {},
+    "user_event_map": None,
+    "user_code_map": None,
+    "annotation_mapping_complete": False,
+    "user_display_names": {},
+    "_prev_class_a": None,
+    "_prev_class_b": None,
+    "class_a_display_name": None,
+    "class_b_display_name": None,
+    "anno_class_a": "—",
+    "anno_class_b": "—",
+    "anno_rest": "Rest",
+}
 
 def initialize_app_state() -> None:
     """Seed Streamlit session state with the app's default workflow and UI values."""
@@ -101,7 +126,9 @@ def reset_for_new_subject() -> None:
     st.session_state["data_loaded"] = False
     st.session_state["can_preprocess_loaded_data"] = False
     st.session_state["subject_warning_pending"] = False
+    clear_model_state()
     clear_preprocessing_state()
+    clear_user_annotations()
 
 
 def mark_subject_warning(selected_subject: int) -> bool:
@@ -109,3 +136,17 @@ def mark_subject_warning(selected_subject: int) -> bool:
     changed = subject_has_changed(selected_subject)
     st.session_state["subject_warning_pending"] = changed
     return changed
+
+def clear_user_annotations() -> None:
+    """Clear user annotations and related state."""
+    st.session_state["user_annotations"] = {}
+    st.session_state["user_assignments"] = {}
+    st.session_state["user_event_map"] = None
+    st.session_state["user_code_map"] = None
+    st.session_state["annotation_mapping_complete"] = False
+    st.session_state["user_display_names"] = {}
+    st.session_state["_prev_class_a"] = None
+    st.session_state["_prev_class_b"] = None
+    for key in ("class_a_display_name", "class_b_display_name", "rest_display_name",
+                "anno_class_a", "anno_class_b", "anno_rest"):
+        st.session_state.pop(key, None)
