@@ -19,8 +19,8 @@ def extract_X_y(
     crop_tmax: float,
     drop_rest: bool,
     rest_code: int,
-    left_code: int,
-    right_code: int,
+    class_a_code: int,
+    class_b_code: int,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
     """
     Convert MNE Epochs -> (X, y) for CSP.
@@ -39,8 +39,8 @@ def extract_X_y(
     # Binary mapping: left vs right -> 0/1
     # If your event codes match EEGBCI style: left=2 right=3 (or your LABEL_MAP)
     uniq = set(np.unique(y).tolist())
-    if uniq == {left_code, right_code}:
-        y = (y == right_code).astype(int)
+    if uniq == {class_a_code, class_b_code}:
+        y = (y == class_b_code).astype(int)
 
     class_counts = {int(k): int(v) for k, v in zip(*np.unique(y, return_counts=True))}
     meta = {
@@ -48,8 +48,8 @@ def extract_X_y(
         "crop_tmax": crop_tmax,
         "drop_rest": drop_rest,
         "rest_code": rest_code,
-        "left_code": left_code,
-        "right_code": right_code,
+        "class_a_code": class_a_code,
+        "class_b_code": class_b_code,
         "n_samples": int(len(X)),
         "class_counts": class_counts,
         "classes_after_mapping": sorted(list(set(np.unique(y).tolist()))),

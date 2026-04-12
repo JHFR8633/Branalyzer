@@ -17,8 +17,8 @@ def render_load_data_dialog() -> None:
 
     source = st.selectbox(
         "Data Source",
-        options=["PhysioNet EEGBCI", "Upload EDF"],
-        index=0 if current_source == "PhysioNet EEGBCI" else 1,
+        options=["Upload EDF", "PhysioNet EEGBCI"],
+        index=1 if current_source == "PhysioNet EEGBCI" else 0,
         key="load_data_source_select",
     )
     uploaded_files = []
@@ -93,13 +93,15 @@ def render_stage_controls(
             "The selected subject differs from the currently loaded data. "
             "The next stage action will reset dependent results for the new subject."
         )
-
     can_preprocess = st.session_state["data_loaded"] and st.session_state["can_preprocess_loaded_data"] and (
         (
             st.session_state["loaded_source"] == "PhysioNet EEGBCI"
             and st.session_state["loaded_subject"] == subject
         )
-        or st.session_state["loaded_source"] == "Upload EDF"
+        or (
+            st.session_state["loaded_source"] == "Upload EDF"
+            and st.session_state["annotation_mapping_complete"]
+        )
     )
     can_run_models = st.session_state["preprocessing_ready"] and (
         (

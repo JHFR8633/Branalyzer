@@ -18,8 +18,8 @@ def run_csp_svm(
     drop_rest: bool = True,
     # These codes should match epoching() event_id
     rest_code: int = 1,
-    left_code: int = 2,
-    right_code: int = 3,
+    class_a_code: int = 2,
+    class_b_code: int = 3,
     n_components: int = 4,
     n_splits: int = 10,
     random_state: int = 42,
@@ -33,8 +33,8 @@ def run_csp_svm(
         crop_tmax=crop_tmax,
         drop_rest=drop_rest,
         rest_code=rest_code,
-        left_code=left_code,
-        right_code=right_code,
+        class_a_code=class_a_code,
+        class_b_code=class_b_code,
     )
     
     csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)

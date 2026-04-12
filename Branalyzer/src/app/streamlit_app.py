@@ -7,9 +7,11 @@ import streamlit as st
 from ui.results import render_event_log, render_model_benchmarking
 from ui.signal_inspection import render_signal_inspection
 from ui.workflow_controls import render_load_data_dialog, render_stage_controls
+from ui.annotation_mapping import render_annotation_mapping
 from workflows.session_state import (
     clear_model_state,
     clear_preprocessing_state,
+    clear_user_annotations,
     initialize_app_state,
     mark_subject_warning,
     reset_for_new_subject,
@@ -73,6 +75,8 @@ def handle_load_data(request: dict[str, Any]) -> None:
     st.session_state["waveform_jump_to_input"] = 0
     st.session_state["waveform_sync_jump_input"] = True
     clear_preprocessing_state()
+    clear_user_annotations()
+    st.session_state["user_annotations"] = loaded["loaded_annotations"]
 
 
 def handle_run_preprocessing(subject: int) -> None:
@@ -94,7 +98,8 @@ def handle_run_preprocessing(subject: int) -> None:
 
     with st.status("Preprocessing EEG data...", expanded=False) as status:
         if st.session_state["loaded_source"] == "Upload EDF":
-            preprocessed = run_preprocessing_stage(file_specs=st.session_state["loaded_file_specs"])
+            preprocessed = run_preprocessing_stage(file_specs=st.session_state["loaded_file_specs"],
+                                                    event_map=st.session_state["user_event_map"])
         else:
             preprocessed = run_preprocessing_stage(subject=subject)
         status.update(label="Preprocessing complete", state="complete")
@@ -176,6 +181,9 @@ def main() -> None:
             f"subject {st.session_state['loaded_subject']}. Click a workflow button to switch."
         )
 
+    if st.session_state["loaded_source"] == "Upload EDF" and st.session_state["data_loaded"]:
+        render_annotation_mapping()
+
     st.divider()
     st.header("Model Settings")
 
@@ -199,6 +207,8 @@ def main() -> None:
     run_svm = "SVM" in selected_models
     run_rf = "Random Forest" in selected_models
 
+
+
     with dashboard_section:
         render_stage_controls(
             selected_subject,
@@ -210,12 +220,12 @@ def main() -> None:
             on_run_models=handle_run_models,
         )
 
-    if st.session_state["loaded_source"] == "Upload EDF":
-        st.caption("Uploaded EDF data is available for raw inspection in the current app flow.")
-        if st.session_state["loaded_file_info"] is not None:
-            st.write(st.session_state["loaded_file_info"])
-        if st.session_state["loaded_annotations"]:
-            st.write({"Annotations": st.session_state["loaded_annotations"]})
+    # if st.session_state["loaded_source"] == "Upload EDF":
+    #     st.caption("Uploaded EDF data is available for raw inspection in the current app flow.")
+    #     if st.session_state["loaded_file_info"] is not None:
+    #         st.write(st.session_state["loaded_file_info"])
+    #     if st.session_state["loaded_annotations"]:
+    #         st.write({"Annotations": st.session_state["loaded_annotations"]})
 
     render_signal_inspection(
         picks=picks,

@@ -130,3 +130,31 @@ def extract_annotations(raw: mne.io.Raw) -> dict[str, int]:
     for desc in descriptions:
         annotations[desc] = annotations.get(desc, 0) + 1
     return annotations
+
+
+def build_maps(user_assignment: dict[str, str],) -> tuple[dict[str, int], dict[str, int]]:
+    """
+    Helper function to convert user event code assignments from Streamlit UI into mappings for first & second classes, and rest (if applicable). NOTE: We are only handling the comparison of TWO classes (and rest, if applicable)
+
+    Parameters:
+        user_assignment: A dictionary sourced from the Streamlit UI that maps event descriptions to their found & user-assigned class labels (discovered via extract_annotations).
+            Example: {"left_hand": "class_a", "right_hand": "class_b", "rest": "rest"}
+    Returns:
+        A tuple of two dictionaries (each of these are used somewhere in our pipeline): 
+            event_map  — annotation desc -> int code (used as both event_ids AND label_map)
+            code_map   — {"Rest": 1, "Class A": 2, "Class B": 3} for extract_X_y
+    """
+    role_to_code = {"Rest": 1, "Class A": 2, "Class B": 3}
+    event_map, code_map = {}, {}
+
+    for annotation_desc, assigned_label in user_assignment.items():
+        if assigned_label.lower() == "ignore":
+            continue
+        code = role_to_code.get(assigned_label)
+        if code is None:
+            logging.warning(f"Unrecognized assigned label '{assigned_label}' for annotation '{annotation_desc}'. Skipping this annotation.")
+            continue
+        event_map[annotation_desc] = code
+        code_map[f"{assigned_label.lower().replace(' ', '_')}_code"] = code
+    
+    return event_map, code_map

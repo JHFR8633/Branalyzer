@@ -6,8 +6,35 @@ import plotly.graph_objects as go
 import streamlit as st
 
 
-_LABEL_NAMES_RAW = {1: "Rest", 2: "Left Fist", 3: "Right Fist"}
-_LABEL_NAMES_BINARY = {0: "Left Fist", 1: "Right Fist"}
+#_LABEL_NAMES_RAW = {1: "Rest", 2: "Left Fist", 3: "Right Fist"} OLD HARDCODED LABEL MAP
+#_LABEL_NAMES_BINARY = {0: "Left Fist", 1: "Right Fist"} OLD HARDCODED LABEL MAP
+
+def _get_class_labels() -> tuple[dict[int, str], dict[int, str]]:
+    """Return label maps for raw event codes and binary-mapped classes based on session state."""
+    assignments = st.session_state.get("user_assignments", {}) # If upload path exists, i.e., if user uploaded file
+
+    display_names = st.session_state.get("user_display_names", {})
+
+    if display_names:
+        class_a_desc = display_names.get("class_a", "Class A")
+        class_b_desc = display_names.get("class_b", "Class B")
+        rest_desc = display_names.get("rest", "Rest")
+    elif st.session_state.get("user_assignments"):
+        # Fallback to raw annotation descriptions if no display names set
+        assignments = st.session_state["user_assignments"]
+        class_a_desc = next((d for d, r in assignments.items() if r == "Class A"), "Class A")
+        class_b_desc = next((d for d, r in assignments.items() if r == "Class B"), "Class B")
+        rest_desc = next((d for d, r in assignments.items() if r == "Rest"), "Rest")
+    else:
+        # Fallback to PhysioNet EEGMMIDB default descriptions if no user assignments (i.e., for demo subjects)
+        class_a_desc = "Left Fist"
+        class_b_desc = "Right Fist"
+        rest_desc = "Rest"
+
+    raw_labels = {1: rest_desc, 2: class_a_desc, 3: class_b_desc}
+    binary_labels = {0: class_a_desc, 1: class_b_desc}
+    return raw_labels, binary_labels 
+
 
 
 def render_model_benchmarking() -> None:
@@ -71,9 +98,14 @@ def render_confusion_matrix(result, max_cm_value: int) -> None:
     if confusion_matrix is None:
         st.info(f"{result.name}: No confusion matrix available.")
         return
-
+    
+    raw_labels, binary_labels = _get_class_labels()
     n_classes = confusion_matrix.shape[0]
-    class_labels = ["Left", "Right"][:n_classes] if n_classes <= 2 else ["Rest", "Left", "Right"][:n_classes]
+    if n_classes <= 2:
+        class_labels = [binary_labels[0], binary_labels[1]][:n_classes]
+    else:
+        class_labels = [raw_labels[1], raw_labels[2], raw_labels[3]][:n_classes]
+
     figure = go.Figure(
         go.Heatmap(
             z=confusion_matrix,
@@ -151,10 +183,11 @@ def build_event_log_comparison_table(results) -> tuple[pd.DataFrame, dict[tuple[
     first_result = results[0]
     ground_truth = first_result.ground_truth
     epoch_count = len(first_result.predictions)
+    raw_labels, binary_labels = _get_class_labels()
 
-    truth_label_map = _LABEL_NAMES_RAW
+    truth_label_map = raw_labels
     if ground_truth is not None and set(np.unique(ground_truth).tolist()) <= {0, 1}:
-        truth_label_map = _LABEL_NAMES_BINARY
+        truth_label_map = binary_labels
 
     rows: list[dict[str, str]] = []
     match_lookup: dict[tuple[int, str], bool | None] = {}
@@ -168,9 +201,9 @@ def build_event_log_comparison_table(results) -> tuple[pd.DataFrame, dict[tuple[
         for result in results:
             prediction_value = result.predictions[epoch_index]
             prediction_label_map = (
-                _LABEL_NAMES_BINARY
+                binary_labels
                 if set(np.unique(result.predictions).tolist()) <= {0, 1}
-                else _LABEL_NAMES_RAW
+                else raw_labels
             )
             column_name = result.name
             row[column_name] = prediction_label_map.get(int(prediction_value), str(prediction_value))
