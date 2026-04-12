@@ -113,6 +113,7 @@ def reset_for_new_subject() -> None:
     st.session_state["data_loaded"] = False
     st.session_state["can_preprocess_loaded_data"] = False
     st.session_state["subject_warning_pending"] = False
+    clear_model_state()
     clear_preprocessing_state()
     clear_user_annotations()
 
