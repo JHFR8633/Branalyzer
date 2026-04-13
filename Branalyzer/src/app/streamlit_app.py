@@ -17,6 +17,7 @@ from workflows.session_state import (
     reset_for_new_subject,
 )
 from workflows.signal_workflow import (
+    _MOTOR_CHANNEL_CANDIDATES,
     load_uploaded_data,
     load_subject_data,
     run_model_stage,
@@ -61,11 +62,16 @@ def handle_load_data(request: dict[str, Any]) -> None:
         loaded = load_uploaded_data(request["files"])
         st.session_state["loaded_subject"] = None
 
+    if source == "Upload EDF":
+        matched_motor_channels = [ch for ch in _MOTOR_CHANNEL_CANDIDATES if ch in loaded["available_channels"]]
+        st.session_state["auto_channels_matched"] = len(matched_motor_channels)
+
     st.session_state["loaded_source"] = loaded["loaded_source"]
     st.session_state["loaded_data_label"] = loaded["loaded_data_label"]
     st.session_state["raw_view"] = loaded["raw_view"]
     st.session_state["available_channels"] = loaded["available_channels"]
     st.session_state["default_channels"] = loaded["default_channels"]
+    st.session_state["_pending_channel_picker"] = loaded["default_channels"]
     st.session_state["loaded_file_names"] = loaded["loaded_file_names"]
     st.session_state["loaded_file_specs"] = loaded["loaded_file_specs"]
     st.session_state["loaded_file_info"] = loaded["loaded_file_info"]
@@ -88,6 +94,8 @@ def handle_run_preprocessing(subject: int) -> None:
     This requires loaded raw data, updates preprocessing-related session state,
     clears model results, and triggers a rerun after completion.
     """
+    channels = list(st.session_state.get("channel_picker", st.session_state["available_channels"]))
+
     if st.session_state["loaded_source"] == "PhysioNet EEGBCI" and mark_subject_warning(subject):
         reset_for_new_subject()
 
@@ -102,7 +110,8 @@ def handle_run_preprocessing(subject: int) -> None:
     with st.status("Preprocessing EEG data...", expanded=False) as status:
         if st.session_state["loaded_source"] == "Upload EDF":
             preprocessed = run_preprocessing_stage(file_specs=st.session_state["loaded_file_specs"],
-                                                    event_map=st.session_state["user_event_map"])
+                                                    event_map=st.session_state["user_event_map"],
+                                                    channels=channels)
         else:
             preprocessed = run_preprocessing_stage(subject=subject, extended_runs=st.session_state["use_extended_runs"])
         status.update(label="Preprocessing complete", state="complete")
@@ -112,7 +121,6 @@ def handle_run_preprocessing(subject: int) -> None:
     st.session_state["raw_view"] = preprocessed["raw_view"]
     st.session_state["available_channels"] = list(preprocessed["raw_view"].ch_names)
     st.session_state["default_channels"] = list(preprocessed["raw_view"].ch_names)[:7]
-    #st.session_state["channel_picker"] = list(preprocessed["raw_view"].ch_names)[:7]
     st.session_state["filtered_view"] = preprocessed["filtered_view"]
     st.session_state["ica_view"] = preprocessed["ica_view"]
     st.session_state["epochs"] = preprocessed["epochs"]
@@ -193,13 +201,35 @@ def main() -> None:
 
     available_channels = st.session_state["available_channels"]
     default_channels = st.session_state["default_channels"]
-    picks = st.multiselect(
-        "Channels",
+
+    if "_pending_channel_picker" in st.session_state:
+        st.session_state["channel_picker"] = st.session_state.pop("_pending_channel_picker")
+
+    widget_kwargs = dict(
+        label="Channels",
         options=available_channels,
-        default=default_channels,
         disabled=not st.session_state["data_loaded"],
-        #key="channel_selector",
+        key="channel_picker",
     )
+
+    if "channel_picker" not in st.session_state:
+        widget_kwargs["default"] = default_channels
+
+    picks = st.multiselect(**widget_kwargs)
+
+    if st.session_state.get("loaded_source") == "Upload EDF" and st.session_state["data_loaded"]:
+        matched_count = st.session_state.get("auto_channels_matched", 0)
+        if matched_count == 0:
+            st.info(
+                "No standard motor cortex channels (C3, C4, Cz, etc.) were detected."
+                " Select the relevant channels for your experiment before preprocessing."
+            )
+        else:
+            channel_list = ", ".join(default_channels)
+            st.info(
+                f"Channels **[{channel_list}]** were auto-matched from **{matched_count}** recognized standard motor cortex channels."
+                " Verify the selection matches your experiment before preprocessing."
+            )
     selected_models = st.multiselect(
         "Models",
         options=_MODEL_OPTIONS,

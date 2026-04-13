@@ -64,8 +64,6 @@ _DEFAULT_STATE = {
     "user_code_map": None,
     "annotation_mapping_complete": False,
     "user_display_names": {},
-    "class_a_display": "",
-    "class_b_display": "",
     "class_a_display_name": "—",
     "class_b_display_name": "—",
     "anno_class_a": "—",

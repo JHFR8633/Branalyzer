@@ -78,9 +78,9 @@ def highlowpass_for_ica(raw: mne.io.Raw, l_freq: float = 1.0, requested_h_freq: 
 
 
 def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state: int = 25) -> mne.io.Raw:
-    
+    """Run ICA with ICLabel for hardware-agnostic artifact removal."""
 
-    
+    # REMOVED DOWNSAMPLING FOR NOW. It hurt our model accuracy. NOTE: Plan to re-implement as a toggleable feature?
     # if raw.info['sfreq'] > 128:
     #     logging.info(f"Resampling from {raw.info['sfreq']} Hz to 128 Hz before ICA.")
     #     raw = raw.copy().resample(128)

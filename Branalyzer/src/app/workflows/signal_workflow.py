@@ -21,12 +21,48 @@ def _apply_average_reference(raw):
     referenced.set_eeg_reference("average")
     return referenced
 
+# MOTOR CHANNEL CANDIDATES GATHERED FROM SOURCES DISCOVERED USING PERPLEXITY LLM:
+# https://www.acns.org/UserFiles/file/EEGGuideline2Electrodenomenclature_final_v1.pdf
+# https://www.fieldtriptoolbox.org/getting_started/eeg/1020/
+# https://en.wikipedia.org/wiki/10%E2%80%9320_system_(EEG)
+_MOTOR_CHANNEL_CANDIDATES = [
+    # Primary Central
+    "C3", "C4", "Cz",
+    # Fronto-Central
+    "FC1", "FC2", "FC3", "FC4", "FC5", "FC6", "FCz",
+    # Centro-Parietal
+    "CP1", "CP2", "CP3", "CP4", "CP5", "CP6", "CPz",
+    # Parietal
+    "P3", "P4", "Pz",
+    # Frontal/Premotor
+    "F3", "F4", "Fz",
+    # 10-5 Extensions
+    "C1", "C2", "C5", "C6",
+    "FC3p", "FC4p", "CP3p", "CP4p", "CP1p", "CP2p",
+    # Legacy/Modern Aliases
+    "CCP3h", "CCP4h", "CCP5h", "CCP6h",
+]
+_MOTOR_CHANNELS_CORE = ["C3", "C4", "Cz", "F3", "F4", "P3", "P4"] # Core channels for RIGHT vs. LEFT fist motor imagery — USED FOR PHYSIONET
+
 
 def _default_channels(raw_view) -> list[str]:
-    """Return the default channel selection used by the Streamlit viewer."""
-    channel_names = list(raw_view.ch_names)
-    return channel_names[: min(7, len(channel_names))]
+    """Picks default channels upon subject selection or file upload, based on matching motor-related channel candidates"""
+    available = list(raw_view.ch_names)
 
+    # We perform some heuristic channel matching in attempt to pick the most relevant channels for motor imagery analysis. This'll hopefully help the user and speed up their workflow.
+    # Worse-case, the user just clears the selection and chooses from the full available channels list.
+    # We are first checking the core channels. If at least 3 are present (e.g. C3, C4, Cz), we will default the channel selection to these.
+    core_matches = [ch for ch in _MOTOR_CHANNELS_CORE if ch in available]
+    if len(core_matches) >= 3:
+        return core_matches
+
+    # As a fall-through, we will check against ALL motor channel candidates and default to the first 7 matches for these.
+    full_matches = [ch for ch in _MOTOR_CHANNEL_CANDIDATES if ch in available]
+    if full_matches:
+        return full_matches[:7]
+    # Lastly, if nothing matches, we will just default to the first 7 channels available.
+    else:
+        return available[:min(7, len(available))]  # Fallback to the first 7 channels if no motor candidates are found
 
 def _write_uploaded_files(file_specs: tuple[tuple[str, bytes], ...]) -> list[str]:
     """Persist uploaded EDF bytes to temp files so MNE can read them from disk."""
@@ -138,10 +174,16 @@ def build_signal_variants_for_upload(file_specs: tuple[tuple[str, bytes], ...]):
 
 @st.cache_resource
 def get_epochs_for_upload(file_specs: tuple[tuple[str, bytes], ...],
-                          event_map_tuple: tuple[tuple[str, int]] | None = None,):
+                          event_map_tuple: tuple[tuple[str, int]] | None = None,
+                          channels: tuple[str, ...] | None = None):
     """Build epochs for uploaded EDF data using the shared preprocessing backend."""
     _ensure_preprocessing_backend()
     ica_clean = prep.run_ica_auto(load_uploaded_raw(file_specs).copy())
+
+    # Channel selection for uploaded file
+    if channels:
+        ica_clean = prep.select_channels(ica_clean, list(channels))
+
     filtered = prep.bandpass_mu_beta(ica_clean, l_freq=8.0, h_freq=30.0)
 
     if event_map_tuple is not None:
@@ -204,19 +246,27 @@ def load_uploaded_data(file_specs: tuple[tuple[str, bytes], ...]):
     }
 
 
-def run_preprocessing_stage(subject: int | None = None, file_specs: tuple[tuple[str, bytes], ...] | None = None,
-                            event_map: dict[str, int] | None = None, extended_runs: bool = False):
+def run_preprocessing_stage(subject: int | None = None, 
+                            file_specs: tuple[tuple[str, bytes], ...] | None = None,
+                            event_map: dict[str, int] | None = None, 
+                            extended_runs: bool = False,
+                            channels: tuple[str, ...] | None = None):
+    
     """Run the preprocessing stage for either PhysioNet or uploaded EDF data."""
     if file_specs is not None:
         raw_view, filtered_view, ica_view = build_signal_variants_for_upload(file_specs)
-        event_map = event_map
         event_map_hashable = tuple(event_map.items()) if event_map else None
-        epochs = get_epochs_for_upload(file_specs, event_map_tuple=event_map_hashable)
+        channels_hashable = tuple(channels) if channels else None
+        epochs = get_epochs_for_upload(file_specs, 
+                                       event_map_tuple=event_map_hashable, 
+                                       channels=channels_hashable)
         data_label = f"Uploaded EDF ({len(file_specs)} file{'s' if len(file_specs) != 1 else ''})"
+
     elif subject is not None:
         raw_view, filtered_view, ica_view = build_signal_variants(subject, extended_runs)
         epochs = get_epochs(subject, extended_runs)
         data_label = f"PhysioNet subject {subject}"
+
     else:
         raise ValueError("run_preprocessing_stage requires either a subject or uploaded file specs.")
 
