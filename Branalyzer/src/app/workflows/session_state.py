@@ -99,6 +99,9 @@ def clear_model_state() -> None:
     st.session_state["modeled_data_label"] = None
     st.session_state["models_ready"] = False
 
+    from workflows.signal_workflow import run_models
+    run_models.clear()
+
 
 def clear_preprocessing_state() -> None:
     """Clear preprocessing artifacts and model state for the active session."""
@@ -108,6 +111,10 @@ def clear_preprocessing_state() -> None:
     st.session_state["epochs"] = None
     st.session_state["preprocessed_data_label"] = None
     st.session_state["preprocessing_ready"] = False
+
+    from workflows.signal_workflow import (build_signal_variants_for_upload, get_epochs_for_upload)
+    build_signal_variants_for_upload.clear()
+    get_epochs_for_upload.clear()
     clear_model_state()
 
 

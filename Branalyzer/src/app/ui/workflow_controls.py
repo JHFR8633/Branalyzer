@@ -108,12 +108,10 @@ def render_stage_controls(
             st.session_state["loaded_source"] == "Upload EDF"
         )
     )
-    can_run_models = st.session_state["preprocessing_ready"] and st.session_state["annotation_mapping_complete"] and (
-        (
+    can_run_models = st.session_state["preprocessing_ready"] and (
             st.session_state["loaded_source"] == "PhysioNet EEGBCI"
             and st.session_state["preprocessed_subject"] == subject
-        )
-        or st.session_state["loaded_source"] == "Upload EDF")
+        ) or (st.session_state["loaded_source"] == "Upload EDF" and st.session_state["annotation_mapping_complete"]) 
 
     col_load, col_preprocess, col_models = st.columns(3)
     with col_load:
