@@ -81,14 +81,14 @@ def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state:
     
 
     
-    if raw.info['sfreq'] > 128:
-        logging.info(f"Resampling from {raw.info['sfreq']} Hz to 128 Hz before ICA.")
-        raw = raw.copy().resample(128)
+    # if raw.info['sfreq'] > 128:
+    #     logging.info(f"Resampling from {raw.info['sfreq']} Hz to 128 Hz before ICA.")
+    #     raw = raw.copy().resample(128)
 
     if n_components is None:
         good_channels = mne.pick_types(raw.info, eeg=True, exclude="bads")
         n_components = min(len(good_channels) - 1, 25)
-        logging.info(f"Automatically setting n_components to {n_components} (capped at 20).")
+        logging.info(f"Automatically setting n_components to {n_components} (capped at 25).")
     else:
         logging.info(f"Manually set n_components as {n_components}.")
 

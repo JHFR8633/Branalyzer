@@ -1,7 +1,16 @@
 import streamlit as st
 from data_ingest import build_maps
 
+def _sync_class_a_display():
+    checked_value = st.session_state["anno_class_a"]
+    st.session_state["class_a_display_name"] = checked_value if checked_value != "—" else ""
 
+def _sync_class_b_display():
+    checked_value = st.session_state["anno_class_b"]
+    st.session_state["class_b_display_name"] = checked_value if checked_value != "—" else ""
+
+
+@st.fragment
 def render_annotation_mapping():
     annotations = st.session_state.get("user_annotations", None)
 
@@ -47,10 +56,12 @@ def render_annotation_mapping():
             options=options_with_none,
             index=0,
             key="anno_class_a",
+            on_change=_sync_class_a_display,
         )
-    if st.session_state.get("_prev_class_a") != class_a_pick:
-        st.session_state["class_a_display_name"] = class_a_pick
-        st.session_state["_prev_class_a"] = class_a_pick
+
+    # if st.session_state.get("_prev_class_a") != class_a_pick:
+    #     st.session_state["class_a_display_name"] = class_a_pick
+    #     st.session_state["_prev_class_a"] = class_a_pick
     with col_a_name:
         class_a_display = st.text_input(
             "Display name",
@@ -65,10 +76,12 @@ def render_annotation_mapping():
             options=options_with_none,
             index=0,
             key="anno_class_b",
+            on_change=_sync_class_b_display,
         )
-    if st.session_state.get("_prev_class_b") != class_b_pick:
-        st.session_state["class_b_display_name"] = class_b_pick
-        st.session_state["_prev_class_b"] = class_b_pick
+
+    # if st.session_state.get("_prev_class_b") != class_b_pick:
+    #     st.session_state["class_b_display_name"] = class_b_pick
+    #     st.session_state["_prev_class_b"] = class_b_pick
     with col_b_name:
         class_b_display = st.text_input(
             "Display name",
@@ -76,20 +89,19 @@ def render_annotation_mapping():
         )
 
     # Rest (optional)
-    col_r_select, col_r_name = st.columns(2)
-    with col_r_select:
+    col_r_pick, col_filler = st.columns(2)
+    with col_r_pick:
         rest_pick = st.selectbox(
             "Rest (optional)",
             options=options_with_none,
             index=0,
             key="anno_rest",
         )
-    with col_r_name:
-        rest_display = st.text_input(
-            "Display name",
-            value=rest_pick if rest_pick != "—" else "Rest",
-            disabled=rest_pick == "—",
-        )
+    with col_filler:
+        if rest_pick != "—":
+            st.info(f'"{rest_pick}" is marked as Rest and will be treated as the baseline class.')
+        else:
+            st.empty()
 
     # Validation
     if class_a_pick == class_b_pick and (class_a_pick != "—" and class_b_pick != "—"):
@@ -101,8 +113,6 @@ def render_annotation_mapping():
     elif class_a_display.strip() == class_b_display.strip() and (class_a_display.strip() != "—" and class_b_display.strip() != "—"):
         st.error("Provide different display names for Class A and Class B before confirming.")
     elif class_a_pick != "—" and class_b_pick != "—":
-        if rest_pick != "—":
-            st.info(f'"{rest_pick}" is marked as Rest and will be treated as the baseline class.')
 
         if st.button("Confirm Mapping"):
                 
@@ -132,7 +142,6 @@ def render_annotation_mapping():
                     st.session_state["user_display_names"] = {
                         "class_a": class_a_display or class_a_pick,
                         "class_b": class_b_display or class_b_pick,
-                        "rest": rest_display if rest_pick != "—" else "Rest",
                     }
                     st.session_state["annotation_mapping_complete"] = True
                     st.rerun()
