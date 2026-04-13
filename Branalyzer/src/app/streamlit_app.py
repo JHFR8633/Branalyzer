@@ -8,6 +8,7 @@ from ui.results import render_event_log, render_model_benchmarking
 from ui.signal_inspection import render_signal_inspection
 from ui.workflow_controls import render_load_data_dialog, render_stage_controls
 from ui.annotation_mapping import render_annotation_mapping
+from workflows.signal_workflow import _default_channels
 from workflows.session_state import (
     clear_model_state,
     clear_preprocessing_state,
@@ -120,7 +121,7 @@ def handle_run_preprocessing(subject: int) -> None:
     st.session_state["preprocessed_subject"] = subject if st.session_state["loaded_source"] == "PhysioNet EEGBCI" else None
     st.session_state["raw_view"] = preprocessed["raw_view"]
     st.session_state["available_channels"] = list(preprocessed["raw_view"].ch_names)
-    st.session_state["default_channels"] = list(preprocessed["raw_view"].ch_names)[:7]
+    st.session_state["default_channels"] = _default_channels(preprocessed["raw_view"])
     st.session_state["filtered_view"] = preprocessed["filtered_view"]
     st.session_state["ica_view"] = preprocessed["ica_view"]
     st.session_state["epochs"] = preprocessed["epochs"]

@@ -37,7 +37,9 @@ def run_csp_lda(
         class_b_code=class_b_code,
     )
     
-    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
+    # reg="ledoit_wolf" handles instances where there are less than 7 channels remaining after ICLabel exclusion.
+    # https://scikit-learn.org/stable/modules/generated/sklearn.covariance.ledoit_wolf.html
+    csp = CSP(n_components=n_components, reg="ledoit_wolf", log=True, norm_trace=False)
     lda = LinearDiscriminantAnalysis()
     clf = Pipeline([("csp", csp), ("lda", lda)])
 

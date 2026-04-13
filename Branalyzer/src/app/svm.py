@@ -36,8 +36,8 @@ def run_csp_svm(
         class_a_code=class_a_code,
         class_b_code=class_b_code,
     )
-    
-    csp = CSP(n_components=n_components, reg=None, log=True, norm_trace=False)
+    # reg="ledoit_wolf" handles instances where there are less than 7 channels remaining after ICLabel exclusion.
+    csp = CSP(n_components=n_components, reg="ledoit_wolf", log=True, norm_trace=False)
     svm = SVC(kernel="rbf", C=1.0, gamma="scale", random_state=random_state)
     clf = Pipeline([("csp", csp), ("svm", svm)])
 

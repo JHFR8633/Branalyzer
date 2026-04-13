@@ -2,11 +2,11 @@ import streamlit as st
 from data_ingest import build_maps
 
 def _sync_class_a_display():
-    checked_value = st.session_state["anno_class_a"]
+    checked_value = st.session_state.get("anno_class_a", "—")
     st.session_state["class_a_display_name"] = checked_value if checked_value != "—" else "—"
 
 def _sync_class_b_display():
-    checked_value = st.session_state["anno_class_b"]
+    checked_value = st.session_state.get("anno_class_b", "—")
     st.session_state["class_b_display_name"] = checked_value if checked_value != "—" else "—"
 
 @st.fragment
