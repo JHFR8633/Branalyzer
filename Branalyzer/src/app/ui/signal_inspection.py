@@ -7,6 +7,7 @@ import streamlit as st
 from ui.waveform import plot_waveforms_plotly
 
 
+
 @st.fragment
 def render_signal_inspection(picks: list[str]) -> None:
     """Render the signal inspection area and keep waveform interactions fragment-scoped.
@@ -153,7 +154,10 @@ def render_waveform_navigation(duration: int) -> None:
             )
             st.session_state["waveform_jump_to"] = int(st.session_state["waveform_window_start"])
             st.session_state["waveform_sync_jump_input"] = True
-            st.rerun(scope="fragment")
+            try:
+                st.rerun(scope="fragment")
+            except st.errors.StreamlitAPIException:
+                pass
     with col_step:
         step_value = int(
             st.number_input(
@@ -183,7 +187,10 @@ def render_waveform_navigation(duration: int) -> None:
             st.session_state["waveform_jump_to"] = jump_to
             st.session_state["waveform_window_start"] = float(jump_to)
             st.session_state["waveform_sync_jump_input"] = False
-            st.rerun(scope="fragment")
+            try:
+                st.rerun(scope="fragment")
+            except st.errors.StreamlitAPIException:
+                pass
     with col_right:
         if st.button(">", key="waveform_step_right", use_container_width=True):
             st.session_state["waveform_window_start"] = min(
@@ -192,7 +199,10 @@ def render_waveform_navigation(duration: int) -> None:
             )
             st.session_state["waveform_jump_to"] = int(st.session_state["waveform_window_start"])
             st.session_state["waveform_sync_jump_input"] = True
-            st.rerun(scope="fragment")
+            try:
+                st.rerun(scope="fragment")
+            except st.errors.StreamlitAPIException:
+                pass
 
 
 def maybe_autoplay_waveform(duration: int, frame_speed: int) -> None:
@@ -223,7 +233,10 @@ def maybe_autoplay_waveform(duration: int, frame_speed: int) -> None:
     st.session_state["waveform_window_start"] = next_start
     st.session_state["waveform_jump_to"] = int(next_start)
     st.session_state["waveform_sync_jump_input"] = True
-    st.rerun(scope="fragment")
+    try:
+        st.rerun(scope="fragment")
+    except st.errors.StreamlitAPIException:
+        pass
 
 
 def render_waveform_plot(
