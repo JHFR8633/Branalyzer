@@ -9,6 +9,12 @@ from sklearn.pipeline import Pipeline
 from schemas import ModelResult
 from csp_pipeline import extract_X_y, pipeline_helper
 
+# Filter Bank CSP imports 
+from sklearn.base import TransformerMixin, BaseEstimator 
+# import feature selection 
+# import transformation
+
+
 def run_csp_rf(
     epochs: mne.Epochs,
     *,

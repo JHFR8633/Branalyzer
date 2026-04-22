@@ -3,6 +3,7 @@ import mne
 from mne.datasets import eegbci # Old import from PhysioNet, but kept for reference in the future.
 from mne.preprocessing import ICA
 from mne_icalabel import label_components
+from mne.filter import next_fast_len 
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -109,6 +110,25 @@ def run_ica_auto(raw: mne.io.Raw, n_components: int | None = None, random_state:
 
     return raw
 
+def compute_psd(epochs: mne.Epochs):
+
+    logging.info("Computing Power Spectral Density from Epoch Data...")
+
+    # Power Spectral Density reduces noise by identifying the ERD and ERS in components to find significant waves
+    spectrum = epochs.compute_psd(method = "welch", fmin = 5, fmax = 30)
+    # spectrum.plot() to visualize
+    """ 
+    method: str = "welch",
+    fmin: int = 0,
+    fmax: float = np.inf,
+    """
+    psd, frequencies = spectrum.get_data(return_freqs = True)
+    # there are 2 main ways to complete this: Welch's method and 
+    # Multitaper Method: Use Thomson's multitaper method instead of Welch for lower variance, 
+    # higher frequency resolution, and reduced bias.
+    return psd, frequencies # return the psd for ml methods 
+    
+        
 
 def bandpass_mu_beta(raw: mne.io.Raw, l_freq: float = 8.0, h_freq: float = 30.0) -> mne.io.Raw:
     raw.filter(l_freq=l_freq, h_freq=h_freq)
@@ -157,9 +177,11 @@ def preprocessing(
     raw = set_average_reference(raw)
     raw = run_ica_auto(raw) # There is a second None = None argument for n_components. We can manually set n_components if we want as 2nd argument integer.
     raw = select_channels(raw, channels)
+    
     raw = bandpass_mu_beta(raw, l_freq=8.0, h_freq=30.0)
 
-    epochs = make_epochs(raw, event_ids=event_ids, label_map=label_map, tmin=0.0, tmax=4.0)
-    return epochs
+    #epochs = make_epochs(raw, event_ids=event_ids, label_map=label_map, tmin=0.0, tmax=4.0)
+    #psd, frequencies = compute_psd(epochs)
+    return raw
 
     # Note: a quick test script is (in terminal): python -c "from pipeline import run_pipeline; result = run_pipeline(1); print(result)"
